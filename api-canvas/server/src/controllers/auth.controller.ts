@@ -1,108 +1,68 @@
 /**
- * Authentication Controller - User registration and login
+ * Authentication Controller - Firebase Auth + MongoDB user sync
+ * 
+ * Flow:
+ * 1. Frontend authenticates user via Firebase SDK (Google or Email/Password)
+ * 2. Frontend sends Firebase ID token in Authorization header
+ * 3. Middleware verifies the token and attaches Firebase user info
+ * 4. Controller syncs/retrieves the user from MongoDB
  */
 
-import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { Response, NextFunction } from 'express';
 import User from '../models/User.js';
 import { AppError } from '../middleware/error.middleware.js';
 import { AuthRequest } from '../middleware/auth.middleware.js';
 
 /**
- * Generate JWT token
+ * Sync Firebase user with MongoDB (create or update)
+ * Called after first login or when user data needs refreshing
+ * POST /api/auth/sync
  */
-function generateToken(userId: string): string {
-    const secret = process.env.JWT_SECRET;
-    const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
-
-    if (!secret) {
-        throw new Error('JWT_SECRET not configured in environment variables');
-    }
-
-    return jwt.sign({ userId }, secret, { expiresIn });
-}
-
-/**
- * Register new user
- * POST /api/auth/register
- */
-export async function register(
-    req: Request,
+export async function syncUser(
+    req: AuthRequest,
     res: Response,
     next: NextFunction
 ): Promise<void> {
     try {
-        const { email, password, name } = req.body;
+        const { uid, email, name, picture, provider } = req.firebaseUser!;
 
-        // Check if user already exists
-        const existingUser = await User.findOne({ email: email.toLowerCase() });
-        if (existingUser) {
-            throw new AppError('User with this email already exists', 400);
+        if (!uid || !email) {
+            throw new AppError('Invalid Firebase token data', 400);
         }
 
-        // Create new user (password will be hashed by the model)
-        const user = await User.create({
-            email: email.toLowerCase(),
-            password,
-            name
-        });
+        // Find existing user or create new one
+        let user = await User.findOne({ firebaseUid: uid });
 
-        // Generate JWT token
-        const token = generateToken(user._id.toString());
+        if (user) {
+            // Update existing user with latest Firebase data
+            user.email = email;
+            if (name) user.name = name;
+            if (picture) user.photoURL = picture;
+            if (provider) user.provider = provider;
+            await user.save();
+        } else {
+            // Create new user in MongoDB
+            user = await User.create({
+                firebaseUid: uid,
+                email: email,
+                name: name || email.split('@')[0],
+                photoURL: picture || null,
+                provider: provider || 'password',
+            });
+        }
 
-        res.status(201).json({
+        res.status(200).json({
             success: true,
-            message: 'User registered successfully',
-            token,
+            message: user.createdAt === user.updatedAt ? 'User created' : 'User synced',
             user: {
                 id: user._id,
+                firebaseUid: user.firebaseUid,
                 email: user.email,
                 name: user.name,
-                createdAt: user.createdAt
-            }
-        });
-    } catch (error) {
-        next(error);
-    }
-}
-
-/**
- * Login user
- * POST /api/auth/login
- */
-export async function login(
-    req: Request,
-    res: Response,
-    next: NextFunction
-): Promise<void> {
-    try {
-        const { email, password } = req.body;
-
-        // Find user by email
-        const user = await User.findOne({ email: email.toLowerCase() });
-        if (!user) {
-            throw new AppError('Invalid email or password', 401);
-        }
-
-        // Check password
-        const isPasswordValid = await user.comparePassword(password);
-        if (!isPasswordValid) {
-            throw new AppError('Invalid email or password', 401);
-        }
-
-        // Generate JWT token
-        const token = generateToken(user._id.toString());
-
-        res.json({
-            success: true,
-            message: 'Login successful',
-            token,
-            user: {
-                id: user._id,
-                email: user.email,
-                name: user.name,
-                createdAt: user.createdAt
-            }
+                photoURL: user.photoURL,
+                provider: user.provider,
+                createdAt: user.createdAt,
+            },
         });
     } catch (error) {
         next(error);
@@ -119,20 +79,26 @@ export async function getMe(
     next: NextFunction
 ): Promise<void> {
     try {
-        const user = await User.findById(req.userId).select('-password');
+        const user = await User.findOne({ firebaseUid: req.firebaseUid });
 
         if (!user) {
-            throw new AppError('User not found', 404);
+            throw new AppError('User not found. Please sync your account first.', 404);
         }
+
+        // Attach MongoDB userId for downstream use
+        req.userId = user._id.toString();
 
         res.json({
             success: true,
             user: {
                 id: user._id,
+                firebaseUid: user.firebaseUid,
                 email: user.email,
                 name: user.name,
-                createdAt: user.createdAt
-            }
+                photoURL: user.photoURL,
+                provider: user.provider,
+                createdAt: user.createdAt,
+            },
         });
     } catch (error) {
         next(error);
@@ -151,13 +117,13 @@ export async function updateProfile(
     try {
         const { name } = req.body;
 
-        const user = await User.findById(req.userId);
+        const user = await User.findOne({ firebaseUid: req.firebaseUid });
         if (!user) {
             throw new AppError('User not found', 404);
         }
 
-        if (name) {
-            user.name = name;
+        if (name && typeof name === 'string' && name.trim()) {
+            user.name = name.trim();
             await user.save();
         }
 
@@ -166,10 +132,38 @@ export async function updateProfile(
             message: 'Profile updated successfully',
             user: {
                 id: user._id,
+                firebaseUid: user.firebaseUid,
                 email: user.email,
                 name: user.name,
-                createdAt: user.createdAt
-            }
+                photoURL: user.photoURL,
+                provider: user.provider,
+                createdAt: user.createdAt,
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
+ * Delete user account
+ * DELETE /api/auth/account
+ */
+export async function deleteAccount(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction
+): Promise<void> {
+    try {
+        const user = await User.findOneAndDelete({ firebaseUid: req.firebaseUid });
+
+        if (!user) {
+            throw new AppError('User not found', 404);
+        }
+
+        res.json({
+            success: true,
+            message: 'Account deleted successfully',
         });
     } catch (error) {
         next(error);

@@ -1,27 +1,32 @@
 /**
- * Authentication Middleware - JWT token verification
+ * Authentication Middleware - Firebase token verification
  */
 
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { getFirebaseAuth } from '../config/firebase.js';
 import { AppError } from './error.middleware.js';
 
 export interface AuthRequest extends Request {
-    userId?: string;
-}
-
-interface JWTPayload {
-    userId: string;
+    userId?: string;       // MongoDB user _id
+    firebaseUid?: string;  // Firebase UID
+    firebaseUser?: {
+        uid: string;
+        email?: string;
+        name?: string;
+        picture?: string;
+        provider?: string;
+    };
 }
 
 /**
- * Middleware to authenticate JWT tokens
+ * Middleware to authenticate Firebase ID tokens
+ * Extracts and verifies the Bearer token from the Authorization header
  */
-export function authenticate(
+export async function authenticate(
     req: AuthRequest,
     res: Response,
     next: NextFunction
-): void {
+): Promise<void> {
     try {
         // Get token from Authorization header
         const authHeader = req.headers.authorization;
@@ -31,26 +36,30 @@ export function authenticate(
         }
 
         // Extract token (remove 'Bearer ' prefix)
-        const token = authHeader.substring(7);
-
-        // Verify token
-        const secret = process.env.JWT_SECRET;
-        if (!secret) {
-            throw new Error('JWT_SECRET not configured');
-        }
+        const idToken = authHeader.substring(7);
 
         try {
-            const decoded = jwt.verify(token, secret) as JWTPayload;
+            // Verify the Firebase ID token
+            const decodedToken = await getFirebaseAuth().verifyIdToken(idToken);
 
-            // Attach userId to request
-            req.userId = decoded.userId;
+            // Attach Firebase user info to request
+            req.firebaseUid = decodedToken.uid;
+            req.firebaseUser = {
+                uid: decodedToken.uid,
+                email: decodedToken.email,
+                name: decodedToken.name,
+                picture: decodedToken.picture,
+                provider: decodedToken.firebase?.sign_in_provider,
+            };
 
             next();
-        } catch (jwtError: any) {
-            if (jwtError.name === 'TokenExpiredError') {
-                throw new AppError('Token has expired, please login again', 401);
-            } else if (jwtError.name === 'JsonWebTokenError') {
-                throw new AppError('Invalid token', 401);
+        } catch (firebaseError: any) {
+            if (firebaseError.code === 'auth/id-token-expired') {
+                throw new AppError('Token has expired, please sign in again', 401);
+            } else if (firebaseError.code === 'auth/id-token-revoked') {
+                throw new AppError('Token has been revoked, please sign in again', 401);
+            } else if (firebaseError.code === 'auth/argument-error') {
+                throw new AppError('Invalid token format', 401);
             } else {
                 throw new AppError('Token verification failed', 401);
             }
@@ -64,25 +73,29 @@ export function authenticate(
  * Optional authentication - doesn't fail if no token
  * Useful for public endpoints that have optional user features
  */
-export function optionalAuth(
+export async function optionalAuth(
     req: AuthRequest,
     res: Response,
     next: NextFunction
-): void {
+): Promise<void> {
     try {
         const authHeader = req.headers.authorization;
 
         if (authHeader && authHeader.startsWith('Bearer ')) {
-            const token = authHeader.substring(7);
-            const secret = process.env.JWT_SECRET;
+            const idToken = authHeader.substring(7);
 
-            if (secret) {
-                try {
-                    const decoded = jwt.verify(token, secret) as JWTPayload;
-                    req.userId = decoded.userId;
-                } catch {
-                    // Ignore errors for optional auth
-                }
+            try {
+                const decodedToken = await getFirebaseAuth().verifyIdToken(idToken);
+                req.firebaseUid = decodedToken.uid;
+                req.firebaseUser = {
+                    uid: decodedToken.uid,
+                    email: decodedToken.email,
+                    name: decodedToken.name,
+                    picture: decodedToken.picture,
+                    provider: decodedToken.firebase?.sign_in_provider,
+                };
+            } catch {
+                // Ignore errors for optional auth
             }
         }
 

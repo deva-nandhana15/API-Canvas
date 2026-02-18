@@ -46,7 +46,7 @@ const endpointSchema = new Schema({
     }
 }, { _id: false });
 
-const projectSchema = new Schema({
+const projectSchema = new Schema<IProject>({
     userId: {
         type: Schema.Types.ObjectId,
         ref: 'User',
@@ -75,6 +75,7 @@ const projectSchema = new Schema({
 });
 
 // Update the updatedAt timestamp on save
+// @ts-ignore
 projectSchema.pre('save', function (next: (err?: mongoose.CallbackError) => void) {
     this.updatedAt = new Date();
     next();

@@ -1,20 +1,27 @@
 /**
- * User Model - MongoDB schema for user authentication
+ * User Model - MongoDB schema for Firebase-authenticated users
+ * Stores user profile data linked to Firebase Auth UID
  */
 
 import mongoose, { Schema, Document } from 'mongoose';
-import bcrypt from 'bcryptjs';
 
 export interface IUser extends Document {
+    firebaseUid: string;
     email: string;
-    password: string;
     name: string;
+    photoURL?: string;
+    provider: string; // 'google.com', 'password', etc.
     createdAt: Date;
     updatedAt: Date;
-    comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
-const userSchema = new Schema({
+const userSchema = new Schema<IUser>({
+    firebaseUid: {
+        type: String,
+        required: [true, 'Firebase UID is required'],
+        unique: true,
+        index: true
+    },
     email: {
         type: String,
         required: [true, 'Email is required'],
@@ -23,15 +30,18 @@ const userSchema = new Schema({
         trim: true,
         match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email']
     },
-    password: {
-        type: String,
-        required: [true, 'Password is required'],
-        minlength: [6, 'Password must be at least 6 characters']
-    },
     name: {
         type: String,
         required: [true, 'Name is required'],
         trim: true
+    },
+    photoURL: {
+        type: String,
+        default: null
+    },
+    provider: {
+        type: String,
+        default: 'password'
     },
     createdAt: {
         type: Date,
@@ -43,42 +53,17 @@ const userSchema = new Schema({
     }
 });
 
-// Hash password before saving
-userSchema.pre('save', async function (next: (err?: mongoose.CallbackError) => void) {
-    // Only hash if password is new or modified
-    if (!this.isModified('password')) {
-        return next();
-    }
-
-    try {
-        const salt = await bcrypt.genSalt(10);
-        this.password = await bcrypt.hash(this.password, salt);
-        next();
-    } catch (error: any) {
-        next(error);
-    }
-});
-
 // Update the updatedAt timestamp
+// @ts-ignore
 userSchema.pre('save', function (next: (err?: mongoose.CallbackError) => void) {
     this.updatedAt = new Date();
     next();
 });
 
-// Method to compare passwords
-userSchema.methods.comparePassword = async function (candidatePassword: string): Promise<boolean> {
-    try {
-        return await bcrypt.compare(candidatePassword, this.password);
-    } catch (error) {
-        return false;
-    }
-};
-
-// Don't return password in JSON responses
+// Clean JSON output
 userSchema.set('toJSON', {
-    transform: (doc, ret) => {
-        delete ret.password;
-        delete ret.__v;
+    transform: (_doc, ret) => {
+        ret.__v = undefined;
         return ret;
     }
 });

@@ -7,6 +7,7 @@ import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { connectDatabase } from './config/database.js';
+import { initializeFirebase } from './config/firebase.js';
 import authRoutes from './routes/auth.routes.js';
 import projectRoutes from './routes/project.routes.js';
 import testRoutes from './routes/test.routes.js';
@@ -45,6 +46,7 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // API Routes
+app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/test', testRoutes);
 
@@ -55,6 +57,7 @@ app.get('/', (req: Request, res: Response) => {
         version: '1.0.0',
         endpoints: {
             health: '/health',
+            auth: '/api/auth',
             projects: '/api/projects',
             test: '/api/test'
         }
@@ -65,32 +68,39 @@ app.get('/', (req: Request, res: Response) => {
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// Start server
-const server = app.listen(PORT, () => {
-    console.log('\n' + '='.repeat(50));
-    console.log('🚀 API Canvas Backend Server');
-    console.log('='.repeat(50));
-    console.log(`📡 Server running on: http://localhost:${PORT}`);
-    console.log(`🌐 CORS enabled for: ${CORS_ORIGIN}`);
-    console.log(`⏰ Started at: ${new Date().toISOString()}`);
-    console.log('='.repeat(50) + '\n');
-});
+// Initialize Firebase and connect to database, then start server
+initializeFirebase();
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('\n📴 SIGTERM received, shutting down gracefully...');
-    server.close(() => {
-        console.log('✅ Server closed');
-        process.exit(0);
+connectDatabase().then(() => {
+    const server = app.listen(PORT, () => {
+        console.log('\n' + '='.repeat(50));
+        console.log('🚀 API Canvas Backend Server');
+        console.log('='.repeat(50));
+        console.log(`📡 Server running on: http://localhost:${PORT}`);
+        console.log(`🌐 CORS enabled for: ${CORS_ORIGIN}`);
+        console.log(`⏰ Started at: ${new Date().toISOString()}`);
+        console.log('='.repeat(50) + '\n');
     });
-});
 
-process.on('SIGINT', () => {
-    console.log('\n📴 SIGINT received, shutting down gracefully...');
-    server.close(() => {
-        console.log('✅ Server closed');
-        process.exit(0);
+    // Graceful shutdown
+    process.on('SIGTERM', () => {
+        console.log('\n📴 SIGTERM received, shutting down gracefully...');
+        server.close(() => {
+            console.log('✅ Server closed');
+            process.exit(0);
+        });
     });
+
+    process.on('SIGINT', () => {
+        console.log('\n📴 SIGINT received, shutting down gracefully...');
+        server.close(() => {
+            console.log('✅ Server closed');
+            process.exit(0);
+        });
+    });
+}).catch((error) => {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
 });
 
 export default app;

@@ -112,3 +112,7 @@ export function validateLogin(req: Request, res: Response, next: NextFunction): 
 
     next();
 }
+
+// Note: validateRegister and validateLogin are no longer used for Firebase auth.
+// Firebase handles authentication on the frontend. These are kept for reference
+// but can be removed if not needed elsewhere.
