@@ -10,9 +10,10 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { auth } from "../lib/firebase";
 import Navbar from "../components/Navbar";
+import DemoModal from "../components/DemoModal";
 
 // ────────────────────────────────────────────────────────────
 // SVG Icon Components (outlined, reusable)
@@ -127,6 +128,8 @@ function Landing() {
 
   // ── Lightweight auth state for CTA button text ──
   const [user, setUser] = useState(null);
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [registerOpen, setRegisterOpen] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -232,7 +235,7 @@ function Landing() {
               {user ? "Go to Workspace" : "Start Building Free"}
             </button>
             <button
-              onClick={() => scrollTo("features")}
+              onClick={() => setDemoOpen(true)}
               className="border border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-50
                          px-8 py-3 rounded-lg text-sm transition-all duration-200"
             >
@@ -416,14 +419,29 @@ function Landing() {
           </div>
 
           {/* Right — built with */}
-          <p className="text-gray-500 text-sm">Built with React, Firebase & ❤️</p>
+          <p className="text-gray-500 text-sm">Built with React & Firebase</p>
         </div>
 
         {/* Copyright */}
         <p className="text-gray-600 text-xs text-center">
-          © 2025 API Canvas. All rights reserved.
+          © 2026 API Canvas. All rights reserved.
         </p>
       </footer>
+
+      {/* ================================================== */}
+      {/* DEMO MODAL                                        */}
+      {/* ================================================== */}
+      <AnimatePresence>
+        {demoOpen && (
+          <DemoModal
+            onClose={() => setDemoOpen(false)}
+            onGetStarted={() => {
+              setDemoOpen(false);
+              navigate("/register");
+            }}
+          />
+        )}
+      </AnimatePresence>
 
     </div>
   );
