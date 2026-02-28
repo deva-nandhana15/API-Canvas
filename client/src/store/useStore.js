@@ -36,7 +36,8 @@ const useStore = create((set) => ({
   // Actions
   // --------------------------------------------------
 
-  // Set the authenticated user (called by onAuthStateChanged listener)
+  // Set the authenticated user (called by onAuthStateChanged listener).
+  // Stores the full Firebase user object including displayName, email, uid, etc.
   setUser: (user) => set({ user }),
 
   // Set the request currently being edited in the API Tester

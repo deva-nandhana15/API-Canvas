@@ -59,8 +59,8 @@ function VerticalHandle() {
 
 function Workspace() {
   return (
-    <div className="h-screen flex flex-col bg-gray-900 overflow-hidden">
-      {/* Top: Navigation bar (fixed height, not resizable) */}
+    <div className="h-screen flex flex-col bg-gray-900 overflow-hidden pt-14">
+      {/* Top: Unified fixed navbar */}
       <Navbar />
 
       {/* Main area: Horizontal Group (sidebar | content) */}

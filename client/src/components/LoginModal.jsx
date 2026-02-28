@@ -1,9 +1,9 @@
 // ============================================================
-// Login.jsx — Login Modal Overlay
+// LoginModal.jsx — Login Modal Overlay
 // ============================================================
-// Renders as a modal on top of the blurred landing page.
-// Accepts onClose callback and onSwitchToRegister to toggle
-// between auth modals. Uses Framer Motion for enter/exit.
+// Full-screen overlay with backdrop blur and centered card.
+// Used by the unified Navbar on every page. Animated with
+// Framer Motion (mount/unmount via AnimatePresence in parent).
 // ============================================================
 
 import { useState } from "react";
@@ -12,7 +12,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { motion } from "framer-motion";
 import { auth } from "../lib/firebase";
 
-function Login({ onClose, onSwitchToRegister }) {
+function LoginModal({ onClose, onSwitchToRegister }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -20,6 +20,7 @@ function Login({ onClose, onSwitchToRegister }) {
 
   const navigate = useNavigate();
 
+  // ── Handle login submission ──
   const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
@@ -55,12 +56,12 @@ function Login({ onClose, onSwitchToRegister }) {
   };
 
   return (
-    /* Full-screen overlay — blurred landing page behind */
+    /* Full-screen overlay — blurred page behind */
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
       onClick={onClose}
     >
       {/* Centered modal card */}
@@ -69,9 +70,8 @@ function Login({ onClose, onSwitchToRegister }) {
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
         transition={{ duration: 0.2 }}
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
-                   bg-gray-800 border border-gray-700 rounded-xl p-8
-                   w-full max-w-md shadow-2xl"
+        className="bg-gray-800 border border-gray-700 rounded-xl p-8
+                   w-full max-w-md mx-4 relative shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button (X) */}
@@ -108,7 +108,7 @@ function Login({ onClose, onSwitchToRegister }) {
               placeholder="you@example.com"
               required
               className="w-full bg-gray-700 border border-gray-700 text-gray-50 rounded p-3
-                         placeholder-gray-500 focus:border-green-800 focus:outline-none
+                         placeholder-gray-500 focus:border-green-600 focus:outline-none
                          transition-colors"
             />
           </div>
@@ -126,7 +126,7 @@ function Login({ onClose, onSwitchToRegister }) {
               placeholder="••••••••"
               required
               className="w-full bg-gray-700 border border-gray-700 text-gray-50 rounded p-3
-                         placeholder-gray-500 focus:border-green-800 focus:outline-none
+                         placeholder-gray-500 focus:border-green-600 focus:outline-none
                          transition-colors"
             />
           </div>
@@ -135,7 +135,7 @@ function Login({ onClose, onSwitchToRegister }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-green-800 hover:bg-green-900 disabled:opacity-50
+            className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50
                        disabled:cursor-not-allowed text-gray-50 font-semibold rounded py-2
                        transition-colors flex items-center justify-center gap-2"
           >
@@ -165,4 +165,4 @@ function Login({ onClose, onSwitchToRegister }) {
   );
 }
 
-export default Login;
+export default LoginModal;

@@ -5,13 +5,15 @@
 // Green-800 accent on buttons and active border.
 // ============================================================
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   collection,
   query,
   where,
   getDocs,
   addDoc,
+  deleteDoc,
+  doc,
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
@@ -43,6 +45,26 @@ function CollectionSidebar() {
   // Save request form
   const [savingTo, setSavingTo] = useState(null);
   const [requestName, setRequestName] = useState("");
+
+  // Inline delete confirmation for collections (stores collection id or null)
+  const [confirmingDelete, setConfirmingDelete] = useState(null);
+
+  // Ref for click-outside detection on the request name input area
+  const inputRef = useRef(null);
+
+  // Close the save-request input when clicking outside its container
+  useEffect(() => {
+    if (savingTo === null) return;
+
+    const handleClickOutside = (e) => {
+      if (inputRef.current && !inputRef.current.contains(e.target)) {
+        setSavingTo(null);
+        setRequestName("");
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [savingTo]);
 
   // Fetch collections on mount
   useEffect(() => {
@@ -143,6 +165,51 @@ function CollectionSidebar() {
     }
   };
 
+  // Delete a collection and all its requests from Firestore + local state
+  const handleDeleteCollection = async (collectionId) => {
+    try {
+      // 1. Find and delete all requests belonging to this collection
+      const q = query(
+        collection(db, "requests"),
+        where("collection_id", "==", collectionId)
+      );
+      const snapshot = await getDocs(q);
+      for (const document of snapshot.docs) {
+        await deleteDoc(doc(db, "requests", document.id));
+      }
+
+      // 2. Delete the collection document itself
+      await deleteDoc(doc(db, "collections", collectionId));
+
+      // 3. Remove from local state immediately
+      setCollections((prev) => prev.filter((c) => c.id !== collectionId));
+      setRequests((prev) => {
+        const next = { ...prev };
+        delete next[collectionId];
+        return next;
+      });
+      if (expandedId === collectionId) setExpandedId(null);
+      setConfirmingDelete(null);
+    } catch (err) {
+      console.error("Failed to delete collection:", err.message);
+    }
+  };
+
+  // Delete a single request from Firestore + local state (no confirmation)
+  const handleDeleteRequest = async (e, requestId, collectionId) => {
+    e.stopPropagation();
+    try {
+      await deleteDoc(doc(db, "requests", requestId));
+      // Remove from local state immediately
+      setRequests((prev) => ({
+        ...prev,
+        [collectionId]: (prev[collectionId] || []).filter((r) => r.id !== requestId),
+      }));
+    } catch (err) {
+      console.error("Failed to delete request:", err.message);
+    }
+  };
+
   // Load saved request into RequestBuilder
   const handleLoadRequest = (request) => {
     setActiveRequest({
@@ -211,13 +278,13 @@ function CollectionSidebar() {
           </p>
         ) : (
           collections.map((col) => (
-            <div key={col.id}>
+            <div key={col.id} className="group/row">
               {/* Collection row */}
               <div className="flex items-center justify-between">
                 <button
                   onClick={() => toggleCollection(col.id)}
                   className={`flex-1 flex items-center gap-2 text-left px-2 py-1.5 rounded
-                             text-sm group transition-colors ${
+                             text-sm transition-colors ${
                                expandedId === col.id
                                  ? "text-gray-50 bg-gray-700 border-l-2 border-green-500"
                                  : "text-gray-400 hover:text-gray-50 hover:bg-gray-700"
@@ -243,21 +310,69 @@ function CollectionSidebar() {
                   </span>
                 </button>
 
-                {/* Add request to collection */}
-                <button
-                  onClick={() => setSavingTo(savingTo === col.id ? null : col.id)}
-                  title="Save request here"
-                  className="text-gray-500 hover:text-green-500 transition p-1"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                  </svg>
-                </button>
+                {/* Right-side action icons — visible on row hover */}
+                <div className="flex items-center">
+                  {/* Inline delete confirmation for this collection */}
+                  {confirmingDelete === col.id ? (
+                    <span className="flex items-center gap-1.5 mr-1">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteCollection(col.id); }}
+                        className="text-gray-400 text-xs hover:text-red-400 transition-colors"
+                      >
+                        Yes
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null); }}
+                        className="text-gray-400 text-xs hover:text-gray-50 transition-colors"
+                      >
+                        No
+                      </button>
+                    </span>
+                  ) : (
+                    /* Trash icon — only visible on row hover */
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setConfirmingDelete(col.id); }}
+                      title="Delete collection"
+                      className="text-gray-500 opacity-0 group-hover/row:opacity-100
+                                 hover:text-red-400 transition-all duration-150 p-1 rounded"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={1.5}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4h8v2" />
+                        <rect x="5" y="6" width="14" height="15" rx="2" />
+                        <path d="M9 11v6" />
+                        <path d="M12 11v6" />
+                        <path d="M15 11v6" />
+                      </svg>
+                    </button>
+                  )}
+
+                  {/* Add request to collection */}
+                  <button
+                    onClick={() => setSavingTo(savingTo === col.id ? null : col.id)}
+                    title="Save request here"
+                    className="text-gray-500 hover:text-green-500 transition p-1"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
-              {/* Save request form */}
+              {/* Save request form — closes on click-outside or Escape */}
               {savingTo === col.id && (
                 <form
+                  ref={inputRef}
                   onSubmit={(e) => handleSaveRequest(e, col.id)}
                   className="ml-5 mt-1 mb-1 flex gap-1"
                 >
@@ -265,6 +380,12 @@ function CollectionSidebar() {
                     type="text"
                     value={requestName}
                     onChange={(e) => setRequestName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setSavingTo(null);
+                        setRequestName("");
+                      }
+                    }}
                     placeholder="Request name..."
                     autoFocus
                     className="flex-1 bg-gray-700 border border-gray-700 text-gray-50 rounded px-2 py-0.5
@@ -294,15 +415,42 @@ function CollectionSidebar() {
                         key={req.id}
                         onClick={() => handleLoadRequest(req)}
                         className="w-full flex items-center gap-2 text-left px-3 py-1 rounded
-                                   hover:bg-gray-700 transition-colors text-xs group"
+                                   hover:bg-gray-700 transition-colors text-xs group/req"
                       >
                         {/* Method text color only */}
                         <span className={`font-bold text-[10px] ${METHOD_BADGE[req.method] || "text-gray-400"}`}>
                           {req.method || "GET"}
                         </span>
                         {/* Request name */}
-                        <span className="text-gray-500 group-hover:text-gray-400 truncate">
+                        <span className="text-gray-500 group-hover/req:text-gray-400 truncate flex-1">
                           {req.name || req.url || "Untitled"}
+                        </span>
+                        {/* Delete request icon — visible on row hover only */}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => handleDeleteRequest(e, req.id, col.id)}
+                          title="Delete request"
+                          className="text-gray-500 opacity-0 group-hover/req:opacity-100
+                                     hover:text-red-400 transition-all duration-150 ml-auto shrink-0"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="w-3 h-3"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={1.5}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M3 6h18" />
+                            <path d="M8 6V4h8v2" />
+                            <rect x="5" y="6" width="14" height="15" rx="2" />
+                            <path d="M9 11v6" />
+                            <path d="M12 11v6" />
+                            <path d="M15 11v6" />
+                          </svg>
                         </span>
                       </button>
                     ))

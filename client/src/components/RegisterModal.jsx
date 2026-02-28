@@ -1,9 +1,9 @@
 // ============================================================
-// Register.jsx — Registration Modal Overlay
+// RegisterModal.jsx — Registration Modal Overlay
 // ============================================================
-// Renders as a modal on top of the blurred landing page.
-// Accepts onClose callback and onSwitchToLogin to toggle
-// between auth modals. Uses Framer Motion for enter/exit.
+// Full-screen overlay with backdrop blur and centered card.
+// Used by the unified Navbar on every page. Animated with
+// Framer Motion (mount/unmount via AnimatePresence in parent).
 // ============================================================
 
 import { useState } from "react";
@@ -13,7 +13,7 @@ import { collection, addDoc } from "firebase/firestore";
 import { motion } from "framer-motion";
 import { auth, db } from "../lib/firebase";
 
-function Register({ onClose, onSwitchToLogin }) {
+function RegisterModal({ onClose, onSwitchToLogin }) {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,11 +23,12 @@ function Register({ onClose, onSwitchToLogin }) {
 
   const navigate = useNavigate();
 
+  // ── Handle registration submission ──
   const handleRegister = async (e) => {
     e.preventDefault();
     setError("");
 
-    // --- Username validation ---
+    // Username validation
     if (!username.trim()) {
       setError("Username is required.");
       return;
@@ -93,12 +94,12 @@ function Register({ onClose, onSwitchToLogin }) {
   };
 
   return (
-    /* Full-screen overlay — blurred landing page behind */
+    /* Full-screen overlay — blurred page behind */
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
       onClick={onClose}
     >
       {/* Centered modal card */}
@@ -107,9 +108,8 @@ function Register({ onClose, onSwitchToLogin }) {
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
         transition={{ duration: 0.2 }}
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
-                   bg-gray-800 border border-gray-700 rounded-xl p-8
-                   w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto"
+        className="bg-gray-800 border border-gray-700 rounded-xl p-8
+                   w-full max-w-md mx-4 relative shadow-2xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button (X) */}
@@ -146,7 +146,7 @@ function Register({ onClose, onSwitchToLogin }) {
               placeholder="Enter your username"
               required
               className="w-full bg-gray-700 border border-gray-700 text-gray-50 rounded p-3
-                         placeholder-gray-500 focus:border-green-800 focus:outline-none
+                         placeholder-gray-500 focus:border-green-600 focus:outline-none
                          transition-colors"
             />
           </div>
@@ -164,7 +164,7 @@ function Register({ onClose, onSwitchToLogin }) {
               placeholder="you@example.com"
               required
               className="w-full bg-gray-700 border border-gray-700 text-gray-50 rounded p-3
-                         placeholder-gray-500 focus:border-green-800 focus:outline-none
+                         placeholder-gray-500 focus:border-green-600 focus:outline-none
                          transition-colors"
             />
           </div>
@@ -182,7 +182,7 @@ function Register({ onClose, onSwitchToLogin }) {
               placeholder="••••••••"
               required
               className="w-full bg-gray-700 border border-gray-700 text-gray-50 rounded p-3
-                         placeholder-gray-500 focus:border-green-800 focus:outline-none
+                         placeholder-gray-500 focus:border-green-600 focus:outline-none
                          transition-colors"
             />
           </div>
@@ -200,7 +200,7 @@ function Register({ onClose, onSwitchToLogin }) {
               placeholder="••••••••"
               required
               className="w-full bg-gray-700 border border-gray-700 text-gray-50 rounded p-3
-                         placeholder-gray-500 focus:border-green-800 focus:outline-none
+                         placeholder-gray-500 focus:border-green-600 focus:outline-none
                          transition-colors"
             />
           </div>
@@ -209,7 +209,7 @@ function Register({ onClose, onSwitchToLogin }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-green-800 hover:bg-green-900 disabled:opacity-50
+            className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50
                        disabled:cursor-not-allowed text-gray-50 font-semibold rounded py-2
                        transition-colors flex items-center justify-center gap-2"
           >
@@ -239,4 +239,4 @@ function Register({ onClose, onSwitchToLogin }) {
   );
 }
 
-export default Register;
+export default RegisterModal;
