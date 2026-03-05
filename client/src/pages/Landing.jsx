@@ -7,13 +7,12 @@
 // Navigation is handled by the shared <Navbar /> component.
 // ============================================================
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import { auth } from "../lib/firebase";
 import Navbar from "../components/Navbar";
-import DemoModal from "../components/DemoModal";
 
 // ────────────────────────────────────────────────────────────
 // SVG Icon Components (outlined, reusable)
@@ -119,6 +118,637 @@ const STEPS = [
   },
 ];
 
+// ────────────────────────────────────────────────────────────
+// Typewriter Hook (used by demo scenes)
+// ────────────────────────────────────────────────────────────
+// Reveals `text` one character at a time starting after
+// `delay` ms, with `speed` ms between each character.
+
+function useTypewriter(text, { delay = 0, speed = 50, enabled = true } = {}) {
+  const [displayed, setDisplayed] = useState("");
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) return;
+    setDisplayed("");
+    setDone(false);
+
+    const startTimeout = setTimeout(() => {
+      let i = 0;
+      const interval = setInterval(() => {
+        i++;
+        setDisplayed(text.slice(0, i));
+        if (i >= text.length) {
+          clearInterval(interval);
+          setDone(true);
+        }
+      }, speed);
+      return () => clearInterval(interval);
+    }, delay);
+
+    return () => clearTimeout(startTimeout);
+  }, [text, delay, speed, enabled]);
+
+  return { displayed, done };
+}
+
+// ────────────────────────────────────────────────────────────
+// Demo Scene 1 — API Tester
+// ────────────────────────────────────────────────────────────
+// Simulates building and sending an API request with
+// typewriter URL, method pulse, send button flash, loading
+// dots, then JSON response.
+
+function APITesterScene() {
+  const [step, setStep] = useState(0);
+  const [loadingDots, setLoadingDots] = useState("");
+
+  const url = "https://api.github.com/users/octocat";
+
+  const { displayed: displayUrl, done: urlDone } = useTypewriter(url, {
+    delay: 0,
+    speed: 40,
+    enabled: step >= 1,
+  });
+
+  const jsonResponse = `{
+  "login": "octocat",
+  "id": 1,
+  "name": "The Octocat",
+  "company": "@github",
+  "public_repos": 8
+}`;
+  const { displayed: displayJson } = useTypewriter(jsonResponse, {
+    delay: 0,
+    speed: 20,
+    enabled: step >= 6,
+  });
+
+  // Orchestration timeline
+  useEffect(() => {
+    const timers = [];
+    timers.push(setTimeout(() => setStep(1), 500));
+    timers.push(setTimeout(() => setStep(2), 500 + url.length * 40 + 300));
+    timers.push(setTimeout(() => setStep(3), 500 + url.length * 40 + 800));
+    timers.push(setTimeout(() => setStep(4), 500 + url.length * 40 + 1300));
+    timers.push(setTimeout(() => setStep(5), 500 + url.length * 40 + 1900));
+    timers.push(setTimeout(() => setStep(6), 500 + url.length * 40 + 2100));
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  // Loading dots animation
+  useEffect(() => {
+    if (step !== 4) return;
+    let count = 0;
+    const interval = setInterval(() => {
+      count = (count + 1) % 4;
+      setLoadingDots(".".repeat(count));
+    }, 200);
+    return () => clearInterval(interval);
+  }, [step]);
+
+  return (
+    <div className="flex flex-col h-full select-none">
+      {/* Top bar: method + URL + Send */}
+      <div className="flex gap-2 mb-4 flex-shrink-0">
+        <motion.div
+          animate={
+            step === 2
+              ? { borderColor: ["#374151", "#16a34a", "#374151"] }
+              : {}
+          }
+          transition={{ duration: 0.6 }}
+          className="bg-gray-800 border border-gray-700 rounded px-3 py-2
+                     text-green-400 text-sm font-mono w-24 flex items-center justify-center"
+        >
+          GET
+        </motion.div>
+
+        <div
+          className="bg-gray-800 border border-gray-700 rounded px-3 py-2
+                     text-gray-50 text-sm font-mono flex-1 truncate"
+        >
+          {step >= 1 ? (
+            <>
+              {displayUrl}
+              {step === 1 && !urlDone && (
+                <motion.span
+                  animate={{ opacity: [1, 0] }}
+                  transition={{ repeat: Infinity, duration: 0.6 }}
+                  className="text-green-400"
+                >
+                  |
+                </motion.span>
+              )}
+            </>
+          ) : (
+            <span className="text-gray-600">Enter request URL...</span>
+          )}
+        </div>
+
+        <motion.button
+          animate={
+            step === 3
+              ? { scale: [1, 1.08, 1], backgroundColor: ["#16a34a", "#22c55e", "#16a34a"] }
+              : {}
+          }
+          transition={{ duration: 0.5 }}
+          className="bg-green-600 text-gray-50 text-sm px-4 py-2 rounded font-medium"
+        >
+          Send
+        </motion.button>
+      </div>
+
+      {/* Tab bar */}
+      <div className="border-b border-gray-700 mb-4 flex gap-6 text-sm flex-shrink-0">
+        <span className="text-gray-50 pb-2 border-b-2 border-green-500">Params</span>
+        <span className="text-gray-500 pb-2">Headers</span>
+        <span className="text-gray-500 pb-2">Body</span>
+        <span className="text-gray-500 pb-2">Auth</span>
+      </div>
+
+      {/* Status bar */}
+      <AnimatePresence>
+        {step >= 5 && (
+          <motion.div
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex gap-4 mb-3 text-sm"
+          >
+            <span className="text-green-400 border border-green-600/40 bg-green-600/10 px-2 py-0.5 rounded text-xs">
+              200 OK
+            </span>
+            <span className="text-green-500 text-xs">243ms</span>
+            <span className="text-gray-500 text-xs">1.2 KB</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Response area */}
+      <div
+        className="bg-gray-800 border border-gray-700 rounded-lg p-4
+                   flex-1 overflow-hidden font-mono text-sm"
+      >
+        {step < 4 && (
+          <span className="text-gray-600">Response will appear here...</span>
+        )}
+        {step === 4 && (
+          <span className="text-gray-400">Loading{loadingDots}</span>
+        )}
+        {step >= 6 && (
+          <pre className="text-green-400 whitespace-pre-wrap">{displayJson}</pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Demo Scene 2 — Code Generator
+// ────────────────────────────────────────────────────────────
+// Simulates form fields filling themselves in, then
+// generated code typing out on the right panel.
+
+function CodeGeneratorScene() {
+  const [step, setStep] = useState(0);
+
+  const fields = {
+    framework: step >= 1 ? "Node.js / Express" : "",
+    method: step >= 2 ? "POST" : "",
+    database: step >= 4 ? "MongoDB" : "",
+    auth: step >= 5 ? "JWT" : "",
+  };
+
+  const pathText = "/users/register";
+  const { displayed: displayPath } = useTypewriter(pathText, {
+    delay: 0,
+    speed: 60,
+    enabled: step >= 3,
+  });
+
+  const codeOutput = `// POST /users/register
+router.post('/users/register', async (req, res) => {
+  try {
+    const { username, email, password } = req.body;
+    const hashed = await bcrypt.hash(password, 10);
+    const user = await User.create({ 
+      username, 
+      email, 
+      password: hashed 
+    });
+    const token = jwt.sign(
+      { id: user._id }, 
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    res.status(201).json({ user, token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});`;
+
+  const { displayed: displayCode } = useTypewriter(codeOutput, {
+    delay: 0,
+    speed: 15,
+    enabled: step >= 7,
+  });
+
+  // Orchestration timeline
+  useEffect(() => {
+    const timers = [];
+    timers.push(setTimeout(() => setStep(1), 500));
+    timers.push(setTimeout(() => setStep(2), 1300));
+    timers.push(setTimeout(() => setStep(3), 2100));
+    timers.push(setTimeout(() => setStep(4), 3200));
+    timers.push(setTimeout(() => setStep(5), 4000));
+    timers.push(setTimeout(() => setStep(6), 4800));
+    timers.push(setTimeout(() => setStep(7), 5300));
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  // Reusable dropdown-style field
+  const Field = ({ label, value, highlight }) => (
+    <div className="mb-3">
+      <p className="text-gray-400 text-xs mb-1">{label}</p>
+      <motion.div
+        animate={
+          highlight
+            ? { borderColor: ["#374151", "#16a34a", "#374151"] }
+            : {}
+        }
+        transition={{ duration: 0.5 }}
+        className="bg-gray-800 border border-gray-700 rounded px-3 py-2
+                   text-gray-50 text-sm w-full"
+      >
+        {value || <span className="text-gray-600">Select...</span>}
+      </motion.div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col h-full select-none">
+      <div className="flex gap-4 flex-1 overflow-hidden">
+        {/* Left: Form (40%) */}
+        <div className="w-[40%] shrink-0 flex flex-col h-full overflow-hidden">
+          <Field label="Framework" value={fields.framework} highlight={step === 1} />
+          <Field label="Method" value={fields.method} highlight={step === 2} />
+
+          <div className="mb-3">
+            <p className="text-gray-400 text-xs mb-1">Path</p>
+            <div
+              className="bg-gray-800 border border-gray-700 rounded px-3 py-2
+                         text-gray-50 text-sm font-mono w-full"
+            >
+              {step >= 3 ? displayPath : <span className="text-gray-600">/endpoint</span>}
+            </div>
+          </div>
+
+          <Field label="Database" value={fields.database} highlight={step === 4} />
+          <Field label="Auth" value={fields.auth} highlight={step === 5} />
+
+          <motion.button
+            animate={
+              step === 6
+                ? { scale: [1, 1.06, 1], backgroundColor: ["#16a34a", "#22c55e", "#16a34a"] }
+                : {}
+            }
+            transition={{ duration: 0.5 }}
+            className="bg-green-600 text-gray-50 text-sm px-4 py-2
+                       rounded font-medium w-full mt-1"
+          >
+            Generate Code
+          </motion.button>
+        </div>
+
+        {/* Right: Code output (60%) */}
+        <div
+          className="flex-1 bg-gray-800 border border-gray-700 rounded-lg p-4
+                     font-mono text-sm text-green-400 overflow-hidden h-full"
+        >
+          {step < 7 ? (
+            <span className="text-gray-600">Generated code will appear here...</span>
+          ) : (
+            <pre className="whitespace-pre-wrap">{displayCode}</pre>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Demo Scene 3 — Flow Visualizer
+// ────────────────────────────────────────────────────────────
+// Shows API flow nodes appearing one by one with animated
+// SVG connections. Pure CSS + Framer Motion.
+
+const NODES = [
+  { id: 1, method: "POST", path: "/register", desc: "Create account", x: 5, y: 8 },
+  { id: 2, method: "POST", path: "/login", desc: "Authenticate", x: 38, y: 8 },
+  { id: 3, method: "GET", path: "/profile", desc: "User info", x: 68, y: 8 },
+  { id: 4, method: "GET", path: "/posts", desc: "List posts", x: 68, y: 60 },
+  { id: 5, method: "POST", path: "/logout", desc: "End session", x: 35, y: 60 },
+];
+
+const CONNECTIONS = [
+  { from: 0, to: 1 },
+  { from: 1, to: 2 },
+  { from: 1, to: 3 },
+  { from: 1, to: 4 },
+];
+
+const CONNECTION_LABELS = {
+  1: "auth",
+  2: "uses token",
+  3: "uses token",
+};
+
+function VisualizerScene() {
+  const [nodesVisible, setNodesVisible] = useState(0);
+  const [showConnections, setShowConnections] = useState(false);
+  const [showGlow, setShowGlow] = useState(false);
+  const [showLabels, setShowLabels] = useState(false);
+
+  useEffect(() => {
+    const timers = [];
+
+    NODES.forEach((_, i) => {
+      timers.push(setTimeout(() => setNodesVisible(i + 1), 400 + i * 250));
+    });
+
+    timers.push(
+      setTimeout(() => setShowConnections(true), 400 + NODES.length * 250 + 400)
+    );
+    timers.push(
+      setTimeout(() => setShowGlow(true), 400 + NODES.length * 250 + 400 + CONNECTIONS.length * 300 + 400)
+    );
+    timers.push(
+      setTimeout(() => setShowLabels(true), 400 + NODES.length * 250 + 400 + CONNECTIONS.length * 300 + 600)
+    );
+
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  const getNodeCenter = (nodeIdx) => {
+    const n = NODES[nodeIdx];
+    return { x: n.x + 9, y: n.y + 10 };
+  };
+
+  return (
+    <div className="flex flex-col h-full select-none">
+      {/* Canvas */}
+      <div
+        className="relative bg-gray-900 border border-gray-700 rounded-xl overflow-hidden flex-1"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)",
+          backgroundSize: "30px 30px",
+        }}
+      >
+        {/* SVG connections */}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 0 }}>
+          {showConnections &&
+            CONNECTIONS.map((conn, idx) => {
+              const from = getNodeCenter(conn.from);
+              const to = getNodeCenter(conn.to);
+              return (
+                <motion.line
+                  key={idx}
+                  x1={`${from.x}%`} y1={`${from.y}%`}
+                  x2={`${to.x}%`} y2={`${to.y}%`}
+                  stroke="#16a34a"
+                  strokeWidth="1.5"
+                  strokeDasharray="4 4"
+                  initial={{ pathLength: 0, opacity: 0 }}
+                  animate={{ pathLength: 1, opacity: 0.6 }}
+                  transition={{ duration: 0.5, delay: idx * 0.3 }}
+                />
+              );
+            })}
+        </svg>
+
+        {/* Connection labels */}
+        {showLabels &&
+          CONNECTIONS.map((conn, idx) => {
+            const label = CONNECTION_LABELS[idx];
+            if (!label) return null;
+            const from = getNodeCenter(conn.from);
+            const to = getNodeCenter(conn.to);
+            const midX = (from.x + to.x) / 2;
+            const midY = (from.y + to.y) / 2;
+            return (
+              <motion.span
+                key={`label-${idx}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.4 }}
+                className="absolute text-gray-500 text-xs bg-gray-900 px-1 rounded pointer-events-none"
+                style={{ left: `${midX}%`, top: `${midY}%`, transform: "translate(-50%, -50%)", zIndex: 5 }}
+              >
+                {label}
+              </motion.span>
+            );
+          })}
+
+        {/* Nodes */}
+        {NODES.map((node, idx) => {
+          if (idx >= nodesVisible) return null;
+          const methodColor = node.method === "GET" ? "text-green-400" : "text-blue-400";
+          return (
+            <motion.div
+              key={node.id}
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                boxShadow: showGlow
+                  ? [
+                      "0 0 0px rgba(22,163,74,0)",
+                      "0 0 12px rgba(22,163,74,0.3)",
+                      "0 0 0px rgba(22,163,74,0)",
+                    ]
+                  : "0 0 0px rgba(22,163,74,0)",
+              }}
+              transition={
+                showGlow
+                  ? { boxShadow: { repeat: Infinity, duration: 2 }, duration: 0.3 }
+                  : { duration: 0.3 }
+              }
+              className="absolute bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 min-w-[130px]"
+              style={{ left: `${node.x}%`, top: `${node.y}%`, zIndex: 10 }}
+            >
+              <div className="flex items-center gap-2 text-sm font-mono">
+                <span className={`${methodColor} font-semibold text-xs`}>{node.method}</span>
+                <span className="text-gray-50 text-xs">{node.path}</span>
+              </div>
+              <p className="text-gray-500 text-xs mt-1">{node.desc}</p>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      <p className="text-gray-500 text-xs text-center mt-2 flex-shrink-0">
+        Drag nodes, draw connections, visualize your API workflow
+      </p>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// DemoSection — Permanent inline demo (replaces modal)
+// ────────────────────────────────────────────────────────────
+// Contains header bar, scene area with AnimatePresence,
+// footer with dots / progress bar / prev-next navigation.
+// Receives `navigate` from parent for "Get Started" button.
+
+const SCENES = ["API Tester", "Code Generator", "Visualizer"];
+
+function DemoSection({ navigate }) {
+  const [currentScene, setCurrentScene] = useState(0);
+
+  // Auto-advance to next scene every 6 seconds
+  useEffect(() => {
+    if (currentScene < SCENES.length - 1) {
+      const timer = setTimeout(() => {
+        setCurrentScene((prev) => prev + 1);
+      }, 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [currentScene]);
+
+  const goPrev = useCallback(() => {
+    setCurrentScene((prev) => Math.max(0, prev - 1));
+  }, []);
+
+  const goNext = useCallback(() => {
+    setCurrentScene((prev) => Math.min(SCENES.length - 1, prev + 1));
+  }, []);
+
+  return (
+    <motion.section
+      id="demo-section"
+      initial={{ opacity: 0, y: 40 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.6 }}
+      className="py-24 px-6 bg-gray-900"
+    >
+      {/* Section header */}
+      <div className="text-center mb-10">
+        <span className="border border-green-600/40 text-green-500 text-xs px-3 py-1 rounded-full bg-green-600/10 mb-4 inline-block">
+          Live Demo
+        </span>
+        <h2 className="text-gray-50 font-bold text-3xl">
+          See API Canvas in action
+        </h2>
+        <p className="text-gray-400 text-sm mt-2">
+          Watch how the three core features work together
+        </p>
+      </div>
+
+      {/* Demo card — same design as the old modal card */}
+      <div
+        className="w-full max-w-5xl mx-auto bg-gray-800 border border-gray-600 rounded-2xl overflow-hidden flex flex-col"
+        style={{ height: '560px', boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 20px 40px rgba(0,0,0,0.4)' }}
+      >
+        {/* Header bar — fixed height */}
+        <div className="flex-shrink-0 bg-gray-800 border-b border-gray-700 px-6 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <span className="text-gray-50 font-bold text-sm">API Canvas</span>
+            <span className="text-gray-500 text-xs">
+              — {["API Tester", "Code Generator", "Flow Visualizer"][currentScene]}
+            </span>
+          </div>
+          <span className="text-gray-500 text-xs">
+            {currentScene + 1} / 3
+          </span>
+        </div>
+
+        {/* Scene area — fills remaining space */}
+        <div className="flex-1 overflow-hidden relative">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={currentScene}
+              className="absolute inset-0 p-6 overflow-hidden"
+              initial={{ opacity: 0, x: 30 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -30 }}
+              transition={{ duration: 0.3 }}
+            >
+              {currentScene === 0 && <APITesterScene />}
+              {currentScene === 1 && <CodeGeneratorScene />}
+              {currentScene === 2 && <VisualizerScene />}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {/* Footer — fixed height */}
+        <div className="flex-shrink-0 bg-gray-800 border-t border-gray-700 px-6 py-4 flex items-center justify-between">
+          {/* Scene indicator dots */}
+          <div className="flex items-center gap-2">
+            {SCENES.map((_, idx) => (
+              <motion.div
+                key={idx}
+                animate={{
+                  width: idx === currentScene ? 10 : 8,
+                  height: idx === currentScene ? 10 : 8,
+                }}
+                transition={{ duration: 0.2 }}
+                className={`rounded-full ${
+                  idx === currentScene ? "bg-green-500" : "bg-gray-600"
+                }`}
+              />
+            ))}
+          </div>
+
+          {/* Progress bar */}
+          <div className="bg-gray-700 rounded-full h-0.5 w-48">
+            <motion.div
+              key={currentScene}
+              className="bg-green-500 h-full rounded-full"
+              initial={{ width: "0%" }}
+              animate={{ width: "100%" }}
+              transition={{ duration: 5, ease: "linear" }}
+            />
+          </div>
+
+          {/* Navigation buttons */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={goPrev}
+              disabled={currentScene === 0}
+              className={`text-sm transition-colors ${
+                currentScene === 0
+                  ? "text-gray-600 opacity-50 cursor-not-allowed"
+                  : "text-gray-400 hover:text-gray-50 cursor-pointer"
+              }`}
+            >
+              ← Prev
+            </button>
+
+            {currentScene < SCENES.length - 1 ? (
+              <button
+                onClick={goNext}
+                className="text-gray-400 hover:text-gray-50 text-sm transition-colors cursor-pointer"
+              >
+                Next →
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate("/register")}
+                className="bg-green-600 hover:bg-green-700 text-gray-50
+                           text-sm px-4 py-1.5 rounded transition-colors cursor-pointer"
+              >
+                Get Started →
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </motion.section>
+  );
+}
+
 // ============================================================
 // Landing Page Component
 // ============================================================
@@ -128,8 +758,6 @@ function Landing() {
 
   // ── Lightweight auth state for CTA button text ──
   const [user, setUser] = useState(null);
-  const [demoOpen, setDemoOpen] = useState(false);
-  const [registerOpen, setRegisterOpen] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -152,23 +780,42 @@ function Landing() {
       {/* ================================================== */}
       {/* SECTION 2 — Hero                                  */}
       {/* ================================================== */}
-      <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-14">
-        {/* Grid pattern overlay */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)",
-            backgroundSize: "50px 50px",
-          }}
-        />
-
-        {/* Soft green radial glow */}
+      <section
+        className="relative min-h-screen flex items-center justify-center overflow-hidden pt-14"
+        style={{
+          background: `
+            radial-gradient(
+              ellipse at center,
+              rgba(22, 163, 74, 0.12) 0%,
+              rgba(17, 24, 39, 0.8) 50%,
+              rgba(0, 0, 0, 1) 100%
+            )
+          `,
+          backgroundImage: `
+            radial-gradient(
+              ellipse at center,
+              rgba(22, 163, 74, 0.12) 0%,
+              transparent 70%
+            ),
+            linear-gradient(
+              rgba(22, 163, 74, 0.09) 1px,
+              transparent 1px
+            ),
+            linear-gradient(
+              90deg,
+              rgba(22, 163, 74, 0.09) 1px,
+              transparent 1px
+            )
+          `,
+          backgroundSize: 'cover, 50px 50px, 50px 50px',
+        }}
+      >
+        {/* Secondary radial glow behind hero text */}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
             background:
-              "radial-gradient(ellipse at center, rgba(22, 163, 74, 0.08) 0%, transparent 70%)",
+              "radial-gradient(ellipse at center, rgba(22, 163, 74, 0.10) 0%, transparent 10%)",
           }}
         />
 
@@ -235,7 +882,7 @@ function Landing() {
               {user ? "Go to Workspace" : "Start Building Free"}
             </button>
             <button
-              onClick={() => setDemoOpen(true)}
+              onClick={() => document.getElementById('demo-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
               className="border border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-50
                          px-8 py-3 rounded-lg text-sm transition-all duration-200"
             >
@@ -338,7 +985,12 @@ function Landing() {
       </section>
 
       {/* ================================================== */}
-      {/* SECTION 5 — How It Works                          */}
+      {/* SECTION 5 — Live Demo                             */}
+      {/* ================================================== */}
+      <DemoSection navigate={navigate} />
+
+      {/* ================================================== */}
+      {/* SECTION 6 — How It Works                          */}
       {/* ================================================== */}
       <section className="py-24 px-6">
         <div className="max-w-5xl mx-auto">
@@ -427,21 +1079,6 @@ function Landing() {
           © 2026 API Canvas. All rights reserved.
         </p>
       </footer>
-
-      {/* ================================================== */}
-      {/* DEMO MODAL                                        */}
-      {/* ================================================== */}
-      <AnimatePresence>
-        {demoOpen && (
-          <DemoModal
-            onClose={() => setDemoOpen(false)}
-            onGetStarted={() => {
-              setDemoOpen(false);
-              navigate("/register");
-            }}
-          />
-        )}
-      </AnimatePresence>
 
     </div>
   );
