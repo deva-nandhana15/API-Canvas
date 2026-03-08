@@ -13,6 +13,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { AnimatePresence } from "framer-motion";
 import { auth } from "../lib/firebase";
+import useStore from "../store/useStore";
 import LoginModal from "./LoginModal";
 import RegisterModal from "./RegisterModal";
 
@@ -34,6 +35,9 @@ const NAV_LINKS = [
 
 function Navbar() {
   const navigate = useNavigate();
+
+  // ── Zustand: reset collections on logout ──
+  const resetCollections = useStore((s) => s.resetCollections);
 
   // ── Auth state (own listener so Navbar works on any page) ──
   const [currentUser, setCurrentUser] = useState(null);
@@ -77,10 +81,11 @@ function Navbar() {
       ? currentUser.email[0].toUpperCase()
       : "?";
 
-  // Sign out of Firebase, redirect to landing page
+  // Sign out of Firebase, reset global state, redirect to landing page
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      resetCollections(); // Clear cached collections & requests from Zustand
       setDropdownOpen(false);
       navigate("/");
     } catch (err) {

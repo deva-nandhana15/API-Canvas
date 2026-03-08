@@ -3,6 +3,8 @@
 // ============================================================
 // Gray-800 sidebar panel. Method colors as text only.
 // Green-800 accent on buttons and active border.
+// Now reads from global Zustand store so Collections page
+// and Sidebar stay in sync without duplicate fetches.
 // ============================================================
 
 import { useState, useEffect, useRef } from "react";
@@ -14,10 +16,10 @@ import {
   addDoc,
   deleteDoc,
   doc,
-  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import useStore from "../store/useStore";
+import { useCollections } from "../hooks/useCollections";
 
 // Method text colors — text only, no backgrounds
 const METHOD_BADGE = {
@@ -32,10 +34,17 @@ function CollectionSidebar() {
   const user = useStore((state) => state.user);
   const setActiveRequest = useStore((state) => state.setActiveRequest);
 
-  // Local state
-  const [collections, setCollections] = useState([]);
+  // ── Global state from Zustand (shared with Collections page) ──
+  const collections = useCollections();
+  const requests = useStore((state) => state.requests);
+  const addCollection = useStore((state) => state.addCollection);
+  const removeCollection = useStore((state) => state.removeCollection);
+  const addRequest = useStore((state) => state.addRequest);
+  const removeRequest = useStore((state) => state.removeRequest);
+  const setCollectionRequests = useStore((state) => state.setCollectionRequests);
+
+  // ── Local UI state ──
   const [expandedId, setExpandedId] = useState(null);
-  const [requests, setRequests] = useState({});
   const [loading, setLoading] = useState(false);
 
   // New collection form
@@ -66,34 +75,7 @@ function CollectionSidebar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [savingTo]);
 
-  // Fetch collections on mount
-  useEffect(() => {
-    if (!user?.uid) return;
-    fetchCollections();
-  }, [user?.uid]);
-
-  const fetchCollections = async () => {
-    if (!user?.uid) return;
-    setLoading(true);
-    try {
-      const q = query(
-        collection(db, "collections"),
-        where("user_id", "==", user.uid)
-      );
-      const snapshot = await getDocs(q);
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setCollections(data);
-    } catch (err) {
-      console.error("Failed to fetch collections:", err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Fetch requests for a collection
+  // Fetch requests for a collection (stores in global Zustand state)
   const fetchRequests = async (collectionId) => {
     try {
       const q = query(
@@ -101,52 +83,67 @@ function CollectionSidebar() {
         where("collection_id", "==", collectionId)
       );
       const snapshot = await getDocs(q);
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setRequests((prev) => ({ ...prev, [collectionId]: data }));
+      // Sort client-side by created_at (desc) — avoids composite index
+      const data = snapshot.docs
+        .map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }))
+        .sort((a, b) => {
+          const dateA = a.created_at?.toDate?.() || new Date(a.created_at);
+          const dateB = b.created_at?.toDate?.() || new Date(b.created_at);
+          return dateB - dateA;
+        });
+      // Store in global Zustand state so Collections page sees them too
+      setCollectionRequests(collectionId, data);
     } catch (err) {
       console.error("Failed to fetch requests:", err.message);
     }
   };
 
-  // Toggle expand/collapse
+  // Toggle expand/collapse — fetches requests if not already cached
   const toggleCollection = (id) => {
     if (expandedId === id) {
       setExpandedId(null);
     } else {
       setExpandedId(id);
+      // Only fetch if not already cached in global state
       if (!requests[id]) fetchRequests(id);
     }
   };
 
-  // Create new collection
+  // Create new collection — writes to Firestore + global Zustand state
   const handleCreateCollection = async (e) => {
     e.preventDefault();
     if (!newName.trim() || !user?.uid) return;
 
     try {
-      await addDoc(collection(db, "collections"), {
+      const docRef = await addDoc(collection(db, "collections"), {
         name: newName.trim(),
         user_id: user.uid,
-        created_at: serverTimestamp(),
+        created_at: new Date(),
+      });
+      // Add to global Zustand state immediately (optimistic update)
+      addCollection({
+        id: docRef.id,
+        name: newName.trim(),
+        user_id: user.uid,
+        created_at: new Date(),
       });
       setNewName("");
       setShowNewForm(false);
-      fetchCollections();
     } catch (err) {
       console.error("Failed to create collection:", err.message);
     }
   };
 
-  // Save request to collection
+  // Save request to collection — writes to Firestore + global Zustand state
   const handleSaveRequest = async (e, collectionId) => {
     e.preventDefault();
     if (!requestName.trim() || !user?.uid) return;
 
     try {
-      await addDoc(collection(db, "requests"), {
+      const requestData = {
         name: requestName.trim(),
         method: "GET",
         url: "",
@@ -155,17 +152,19 @@ function CollectionSidebar() {
         params: [],
         collection_id: collectionId,
         user_id: user.uid,
-        created_at: serverTimestamp(),
-      });
+        created_at: new Date(),
+      };
+      const docRef = await addDoc(collection(db, "requests"), requestData);
+      // Add to global Zustand state immediately (optimistic update)
+      addRequest(collectionId, { id: docRef.id, ...requestData });
       setRequestName("");
       setSavingTo(null);
-      fetchRequests(collectionId);
     } catch (err) {
       console.error("Failed to save request:", err.message);
     }
   };
 
-  // Delete a collection and all its requests from Firestore + local state
+  // Delete a collection and all its requests from Firestore + global state
   const handleDeleteCollection = async (collectionId) => {
     try {
       // 1. Find and delete all requests belonging to this collection
@@ -181,13 +180,8 @@ function CollectionSidebar() {
       // 2. Delete the collection document itself
       await deleteDoc(doc(db, "collections", collectionId));
 
-      // 3. Remove from local state immediately
-      setCollections((prev) => prev.filter((c) => c.id !== collectionId));
-      setRequests((prev) => {
-        const next = { ...prev };
-        delete next[collectionId];
-        return next;
-      });
+      // 3. Remove from global Zustand state immediately
+      removeCollection(collectionId);
       if (expandedId === collectionId) setExpandedId(null);
       setConfirmingDelete(null);
     } catch (err) {
@@ -195,16 +189,13 @@ function CollectionSidebar() {
     }
   };
 
-  // Delete a single request from Firestore + local state (no confirmation)
+  // Delete a single request from Firestore + global state (no confirmation)
   const handleDeleteRequest = async (e, requestId, collectionId) => {
     e.stopPropagation();
     try {
       await deleteDoc(doc(db, "requests", requestId));
-      // Remove from local state immediately
-      setRequests((prev) => ({
-        ...prev,
-        [collectionId]: (prev[collectionId] || []).filter((r) => r.id !== requestId),
-      }));
+      // Remove from global Zustand state immediately
+      removeRequest(collectionId, requestId);
     } catch (err) {
       console.error("Failed to delete request:", err.message);
     }

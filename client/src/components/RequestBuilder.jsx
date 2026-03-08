@@ -9,6 +9,9 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import useStore from "../store/useStore";
+import { motion, AnimatePresence } from "framer-motion";
+import { db } from "../lib/firebase";
+import { collection, addDoc } from "firebase/firestore";
 
 // Proxy server URL from env (with fallback)
 const PROXY_URL = import.meta.env.VITE_PROXY_URL || "http://localhost:5000";
@@ -100,6 +103,10 @@ function RequestBuilder() {
   const activeRequest = useStore((state) => state.activeRequest);
   const setActiveRequest = useStore((state) => state.setActiveRequest);
 
+  // Zustand selectors for save functionality
+  const collections = useStore((state) => state.collections);
+  const addRequestToStore = useStore((state) => state.addRequest);
+
   // --------------------------------------------------
   // Local form state
   // --------------------------------------------------
@@ -121,6 +128,14 @@ function RequestBuilder() {
   const [basicUsername, setBasicUsername] = useState("");
   const [basicPassword, setBasicPassword] = useState("");
 
+  // Save modal state
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [requestName, setRequestName] = useState("");
+  const [selectedCollection, setSelectedCollection] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
   // --------------------------------------------------
   // Load active request from Zustand when it changes
   // (e.g. when user clicks a saved request in sidebar)
@@ -139,6 +154,30 @@ function RequestBuilder() {
       setBasicPassword(activeRequest.basicPassword || "");
     }
   }, [activeRequest]);
+
+  // --------------------------------------------------
+  // Auto-fill request name and auto-select collection
+  // when the save modal opens
+  // --------------------------------------------------
+  useEffect(() => {
+    if (saveModalOpen) {
+      // Auto-fill name from method + url path
+      if (url.trim()) {
+        try {
+          const urlPath = new URL(url.trim()).pathname || url.trim();
+          setRequestName(`${method} ${urlPath}`);
+        } catch {
+          setRequestName(`${method} ${url.trim()}`);
+        }
+      }
+      // Auto-select if only one collection exists
+      if (collections.length === 1) {
+        setSelectedCollection(collections[0].id);
+      }
+      // Reset errors
+      setSaveError("");
+    }
+  }, [saveModalOpen]);
 
   // --------------------------------------------------
   // Convert key-value pair arrays to plain objects
@@ -218,6 +257,65 @@ function RequestBuilder() {
     }
   };
 
+  // --------------------------------------------------
+  // Save current request to a collection
+  // --------------------------------------------------
+  const handleSave = async () => {
+    if (!requestName.trim()) {
+      setSaveError("Please enter a request name");
+      return;
+    }
+    if (!selectedCollection) {
+      setSaveError("Please select a collection");
+      return;
+    }
+
+    setSaveLoading(true);
+    setSaveError("");
+
+    try {
+      const requestData = {
+        name: requestName.trim(),
+        method,
+        url: url.trim(),
+        params,
+        headers,
+        bodyType,
+        bodyContent,
+        authType,
+        bearerToken,
+        basicUsername,
+        basicPassword,
+        collection_id: selectedCollection,
+        user_id: user?.uid,
+        created_at: new Date(),
+      };
+
+      // Save to Firestore
+      const docRef = await addDoc(collection(db, "requests"), requestData);
+
+      // Update Zustand immediately so sidebar shows new request without refresh
+      addRequestToStore(selectedCollection, {
+        id: docRef.id,
+        ...requestData,
+      });
+
+      // Show success then close
+      setSaveSuccess(true);
+      setTimeout(() => {
+        setSaveSuccess(false);
+        setSaveModalOpen(false);
+        setRequestName("");
+        setSelectedCollection("");
+      }, 1000);
+    } catch (err) {
+      setSaveError("Failed to save. Try again.");
+      console.error("Save error:", err);
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col w-full h-full bg-gray-900 p-4 overflow-hidden">
       {/* Top row: Method selector + URL input + Send button */}
@@ -248,6 +346,29 @@ function RequestBuilder() {
                      text-sm placeholder-gray-500 focus:border-green-800 focus:outline-none
                      transition-colors"
         />
+
+        {/* Save button */}
+        <button
+          onClick={() => setSaveModalOpen(true)}
+          disabled={!url.trim()}
+          className="border border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-gray-50 font-medium rounded px-4 py-2.5 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 flex items-center gap-2"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-4 h-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"
+            />
+          </svg>
+          Save
+        </button>
 
         {/* Send button — solid Green-800 */}
         <button
@@ -397,6 +518,136 @@ function RequestBuilder() {
           </div>
         )}
       </div>
+
+      {/* ── Save Request Modal ───────────────────────── */}
+      <AnimatePresence>
+        {saveModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSaveModalOpen(false)}
+          >
+            <motion.div
+              className="bg-gray-800 border border-gray-700 rounded-xl p-6 w-full max-w-md mx-4 relative"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.2 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Close button */}
+              <button
+                onClick={() => setSaveModalOpen(false)}
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-50 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+
+              {/* Title */}
+              <h3 className="text-gray-50 font-bold text-lg mb-5">Save Request</h3>
+
+              {/* Success state */}
+              {saveSuccess ? (
+                <div className="text-center py-6">
+                  <div className="w-12 h-12 bg-green-600/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg className="w-6 h-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <p className="text-gray-50 font-medium">Saved!</p>
+                </div>
+              ) : (
+                <>
+                  {/* Request name input */}
+                  <div className="mb-4">
+                    <label className="text-gray-400 text-xs mb-1.5 block">Request Name</label>
+                    <input
+                      type="text"
+                      value={requestName}
+                      onChange={(e) => setRequestName(e.target.value)}
+                      placeholder="e.g. Get User Profile"
+                      className="w-full bg-gray-700 border border-gray-700 text-gray-50 placeholder-gray-500 rounded-lg p-3 text-sm focus:border-green-600 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Collection selector */}
+                  <div className="mb-4">
+                    <label className="text-gray-400 text-xs mb-1.5 block">Save to Collection</label>
+
+                    {collections.length === 0 ? (
+                      <p className="text-gray-500 text-sm bg-gray-700/50 rounded-lg p-4 text-center">
+                        No collections yet. Create one first in the Collections page.
+                      </p>
+                    ) : (
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {collections.map((col) => (
+                          <div
+                            key={col.id}
+                            onClick={() => setSelectedCollection(col.id)}
+                            className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition-all duration-150 ${
+                              selectedCollection === col.id
+                                ? "border-green-600 bg-green-600/10 text-gray-50"
+                                : "border-gray-700 hover:border-gray-600 text-gray-400 hover:text-gray-50"
+                            }`}
+                          >
+                            <svg
+                              className="w-4 h-4 text-green-500 shrink-0"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={1.5}
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
+                              />
+                            </svg>
+                            <span className="text-sm font-medium">{col.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Error message */}
+                  {saveError && (
+                    <p className="text-red-400 text-sm mb-4">{saveError}</p>
+                  )}
+
+                  {/* Save action button */}
+                  <button
+                    onClick={handleSave}
+                    disabled={saveLoading || collections.length === 0}
+                    className="bg-green-600 hover:bg-green-700 text-gray-50 font-semibold w-full py-2.5 rounded-lg text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {saveLoading ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-gray-50 border-t-transparent rounded-full animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      "Save Request"
+                    )}
+                  </button>
+
+                  {/* Cancel button */}
+                  <button
+                    onClick={() => setSaveModalOpen(false)}
+                    className="border border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-gray-50 w-full py-2 rounded-lg text-sm mt-2 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
