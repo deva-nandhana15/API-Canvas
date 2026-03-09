@@ -18,7 +18,6 @@ import ReactFlow, {
   addEdge,
   Background,
   Controls,
-  MiniMap,
   useNodesState,
   useEdgesState,
   MarkerType,
@@ -1439,26 +1438,6 @@ function Visualizer() {
                     </div>
                   )}
                 </div>
-
-                {/* ── Section 6 — Mini Map ── */}
-                {nodes.length > 0 && (
-                  <div className="px-4 py-3 mt-auto border-t border-gray-700">
-                    <p className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Overview</p>
-                    <div className="rounded-lg overflow-hidden border border-gray-700 relative" style={{ height: 100 }}>
-                      <MiniMap
-                        style={{
-                          background: "#1f2937",
-                          width: "100%",
-                          height: 100,
-                          position: "relative",
-                        }}
-                        nodeColor="#374151"
-                        maskColor="rgba(0,0,0,0.4)"
-                      />
-                    </div>
-                  </div>
-                )}
-
               </div>
             </ResizablePanel>
 
