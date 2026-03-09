@@ -40,6 +40,7 @@ import {
   getDocs,
   addDoc,
   updateDoc,
+  deleteDoc,
   doc,
 } from "firebase/firestore";
 import useStore from "../store/useStore";
@@ -63,6 +64,15 @@ const METHOD_BG = {
   PATCH: "bg-orange-500/20 text-orange-400",
 };
 
+// Method text colours for edge details source/target badges
+const METHOD_TEXT = {
+  GET: "text-green-400",
+  POST: "text-blue-400",
+  PUT: "text-yellow-400",
+  DELETE: "text-red-400",
+  PATCH: "text-orange-400",
+};
+
 // ============================================================
 // Visualizer Component
 // ============================================================
@@ -78,6 +88,7 @@ function Visualizer() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedEdge, setSelectedEdge] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // ── UI state ──
@@ -99,6 +110,12 @@ function Visualizer() {
   const [graphName, setGraphName] = useState("");
   const [savedGraphs, setSavedGraphs] = useState([]);
   const [currentGraphId, setCurrentGraphId] = useState(null);
+  const [graphDropdownOpen, setGraphDropdownOpen] = useState(false);
+  const graphDropdownRef = useRef(null);
+
+  // ── Save feedback state ──
+  const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // ── New / edit node form state ──
   const emptyNode = {
@@ -144,6 +161,34 @@ function Visualizer() {
   }, [user]);
 
   // ────────────────────────────────────────────────────────
+  // Track unsaved changes after graph is loaded
+  // ────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (currentGraphId) {
+      setHasUnsavedChanges(true);
+    }
+  }, [nodes, edges]);
+
+  // ────────────────────────────────────────────────────────
+  // Close graph dropdown when clicking outside
+  // ────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (
+        graphDropdownOpen &&
+        graphDropdownRef.current &&
+        !graphDropdownRef.current.contains(e.target)
+      ) {
+        setGraphDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [graphDropdownOpen]);
+
+  // ────────────────────────────────────────────────────────
   // React Flow handlers
   // ────────────────────────────────────────────────────────
 
@@ -154,11 +199,11 @@ function Visualizer() {
         addEdge(
           {
             ...params,
-            style: { stroke: "#4b5563", strokeWidth: 1.5 },
-            markerEnd: { type: MarkerType.ArrowClosed, color: "#4b5563" },
+            style: { stroke: "rgba(255,255,255,0.08)", strokeWidth: 1 },
+            markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(255,255,255,0.08)" },
             label: "",
-            labelStyle: { fill: "#9ca3af", fontSize: 10 },
-            labelBgStyle: { fill: "#1f2937" },
+            labelStyle: { fill: "#6b7280", fontSize: 9, fontFamily: "monospace" },
+            labelBgStyle: { fill: "#141414", fillOpacity: 0.9 },
           },
           eds
         )
@@ -170,12 +215,21 @@ function Visualizer() {
   /** Select a node and open the detail panel */
   const onNodeClick = useCallback((_event, node) => {
     setSelectedNode(node);
+    setSelectedEdge(null);
     setConfirmDelete(false);
   }, []);
 
-  /** Deselect node when clicking empty canvas */
+  /** Select an edge and show its details */
+  const onEdgeClick = useCallback((_event, edge) => {
+    setSelectedEdge(edge);
+    setSelectedNode(null);
+    setConfirmDelete(false);
+  }, []);
+
+  /** Deselect everything when clicking empty canvas */
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
+    setSelectedEdge(null);
     setConfirmDelete(false);
   }, []);
 
@@ -441,7 +495,7 @@ function Visualizer() {
         prev.map((e) => ({
           ...e,
           animated: false,
-          style: { ...e.style, stroke: "#4b5563" },
+          style: { ...e.style, stroke: "rgba(255,255,255,0.08)" },
         }))
       );
       return;
@@ -471,7 +525,7 @@ function Visualizer() {
           animated: e.source === nodeId,
           style: {
             ...e.style,
-            stroke: e.source === nodeId ? "#22c55e" : "#4b5563",
+            stroke: e.source === nodeId ? "rgba(52,211,153,0.6)" : "rgba(255,255,255,0.08)",
           },
         }))
       );
@@ -489,7 +543,7 @@ function Visualizer() {
       prev.map((e) => ({
         ...e,
         animated: false,
-        style: { ...e.style, stroke: "#4b5563" },
+        style: { ...e.style, stroke: "rgba(255,255,255,0.08)" },
       }))
     );
 
@@ -503,6 +557,7 @@ function Visualizer() {
 
   const handleSaveGraph = async () => {
     if (!graphName.trim()) return;
+    setSaveStatus("saving");
 
     try {
       const graphData = {
@@ -527,9 +582,16 @@ function Visualizer() {
         setSavedGraphs((prev) => [{ id: docRef.id, ...graphData }, ...prev]);
       }
 
+      setSaveStatus("saved");
+      setHasUnsavedChanges(false);
       setSaveModalOpen(false);
+
+      // Reset status after 3 seconds
+      setTimeout(() => setSaveStatus(null), 3000);
     } catch (err) {
       console.error("Save error:", err);
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus(null), 3000);
     }
   };
 
@@ -542,14 +604,44 @@ function Visualizer() {
     setGraphName(graph.name || "");
     setCurrentGraphId(graphId);
     setSelectedNode(null);
+    setSelectedEdge(null);
+
+    // Reset AFTER state updates so the useEffect doesn't flag it
+    setTimeout(() => setHasUnsavedChanges(false), 0);
   };
 
+  /** Starts a fresh unnamed graph */
+  const handleNewGraph = () => {
+    setNodes([]);
+    setEdges([]);
+    setSelectedNode(null);
+    setSelectedEdge(null);
+    setGraphName("");
+    setCurrentGraphId(null);
+    setHasUnsavedChanges(false);
+  };
+
+  /** Clears canvas but keeps graph context (name and id stay the same) */
   const handleClearCanvas = () => {
     setNodes([]);
     setEdges([]);
     setSelectedNode(null);
-    setGraphName("");
-    setCurrentGraphId(null);
+    setSelectedEdge(null);
+    setHasUnsavedChanges(true);
+  };
+
+  /** Delete a saved graph from Firestore */
+  const handleDeleteGraph = async (graphId) => {
+    try {
+      await deleteDoc(doc(db, "flow_graphs", graphId));
+      setSavedGraphs((prev) => prev.filter((g) => g.id !== graphId));
+      // If deleted graph was current, reset to new graph state
+      if (currentGraphId === graphId) {
+        handleNewGraph();
+      }
+    } catch (err) {
+      console.error("Delete error:", err);
+    }
   };
 
   // ────────────────────────────────────────────────────────
@@ -651,6 +743,73 @@ function Visualizer() {
     ? nodes.find((n) => n.id === selectedNode.id)?.data || selectedNode.data
     : null;
 
+  // ────────────────────────────────────────────────────────
+  // Styled edges — highlight the selected edge green
+  // ────────────────────────────────────────────────────────
+
+  const styledEdges = edges.map((edge) => ({
+    ...edge,
+    style: {
+      ...edge.style,
+      stroke:
+        selectedEdge?.id === edge.id
+          ? "rgba(52,211,153,0.6)"
+          : edge.style?.stroke || "rgba(255,255,255,0.08)",
+      strokeWidth:
+        selectedEdge?.id === edge.id
+          ? 2
+          : edge.style?.strokeWidth || 1,
+    },
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      color: selectedEdge?.id === edge.id ? "rgba(52,211,153,0.6)" : "rgba(255,255,255,0.08)",
+    },
+  }));
+
+  // ────────────────────────────────────────────────────────
+  // Update edge line style (solid / dashed / animated)
+  // ────────────────────────────────────────────────────────
+
+  const updateEdgeStyle = (edgeId, style) => {
+    const applyStyle = (obj) => {
+      switch (style) {
+        case "solid":
+          return { ...obj, animated: false, style: { ...obj.style, strokeDasharray: "" } };
+        case "dashed":
+          return { ...obj, animated: false, style: { ...obj.style, strokeDasharray: "5 5" } };
+        case "animated":
+          return { ...obj, animated: true, style: { ...obj.style, strokeDasharray: "" } };
+        default:
+          return obj;
+      }
+    };
+
+    setEdges((prev) => prev.map((e) => (e.id === edgeId ? applyStyle(e) : e)));
+    setSelectedEdge((prev) => (prev ? applyStyle(prev) : null));
+  };
+
+  // ────────────────────────────────────────────────────────
+  // Keyboard: Delete/Backspace removes selected edge
+  // ────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Delete") {
+        // Don't intercept when typing in an input / textarea
+        const tag = document.activeElement?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+        if (selectedEdge) {
+          setEdges((prev) => prev.filter((ed) => ed.id !== selectedEdge.id));
+          setSelectedEdge(null);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedEdge, setEdges]);
+
   // ============================================================
   // Render
   // ============================================================
@@ -665,70 +824,71 @@ function Visualizer() {
 
             {/* ── LEFT — Canvas Area ── */}
             <ResizablePanel defaultSize="75%" minSize="40%">
-              <div className="relative h-full">
+              <div className="relative h-full bg-gray-900">
 
-                {/* Dotted border overlay (empty state only) */}
+                {/* ReactFlow clipped INSIDE the border inset */}
+                <div className="absolute inset-4 rounded-xl overflow-hidden border border-white/[0.08]">
+                  <ReactFlow
+                    nodes={nodes}
+                    edges={styledEdges}
+                    onNodesChange={onNodesChange}
+                    onEdgesChange={onEdgesChange}
+                    onConnect={onConnect}
+                    onNodeClick={onNodeClick}
+                    onEdgeClick={onEdgeClick}
+                    onPaneClick={onPaneClick}
+                    nodeTypes={nodeTypes}
+                    fitView
+                    proOptions={{ hideAttribution: true }}
+                    defaultEdgeOptions={{
+                      style: { stroke: "rgba(255,255,255,0.08)", strokeWidth: 1 },
+                      markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(255,255,255,0.08)" },
+                      animated: false,
+                      labelStyle: { fill: "#6b7280", fontSize: 9, fontFamily: "monospace" },
+                      labelBgStyle: { fill: "#141414", fillOpacity: 0.9 },
+                    }}
+                  >
+                    <Background
+                      variant="lines"
+                      gap={40}
+                      size={10}
+                      color="rgba(255,255,255,0.03)"
+                      style={{ backgroundColor: "grey-900" }}
+                    />
+                    <Controls
+                      showInteractive={false}
+                      position="bottom-left"
+                    />
+                  </ReactFlow>
+                </div>
+
+                {/* Empty state centered inside the border area */}
                 {nodes.length === 0 && (
-                  <div className="absolute inset-4 border-2 border-dashed border-gray-700/60 rounded-xl pointer-events-none z-10" />
+                  <div className="absolute inset-4 flex items-center justify-center pointer-events-none z-10 rounded-xl">
+                    <div className="text-center">
+                      <svg
+                        className="w-8 h-8 text-gray-700 mx-auto mb-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1.5}
+                          d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"
+                        />
+                      </svg>
+                      <p className="text-gray-500 text-sm font-medium">
+                        Drop your API endpoints here
+                      </p>
+                      <p className="text-gray-600 text-xs mt-1">
+                        Import a collection or add nodes manually
+                      </p>
+                    </div>
+                  </div>
                 )}
 
-                <ReactFlow
-                  nodes={nodes}
-                  edges={edges}
-                  onNodesChange={onNodesChange}
-                  onEdgesChange={onEdgesChange}
-                  onConnect={onConnect}
-                  onNodeClick={onNodeClick}
-                  onPaneClick={onPaneClick}
-                  nodeTypes={nodeTypes}
-                  fitView
-                  proOptions={{ hideAttribution: true }}
-                  className="bg-gray-900"
-                  defaultEdgeOptions={{
-                    style: { stroke: "#4b5563", strokeWidth: 1.5 },
-                    markerEnd: { type: MarkerType.ArrowClosed, color: "#4b5563" },
-                    animated: false,
-                  }}
-                >
-                  <Background
-                    variant="dots"
-                    gap={20}
-                    size={1}
-                    color="#1f2937"
-                    style={{ backgroundColor: "#111827" }}
-                  />
-                  <Controls
-                    showInteractive={false}
-                    position="bottom-left"
-                  />
-
-                  {/* Empty state centered in canvas */}
-                  <RFPanel position="center">
-                    {nodes.length === 0 && (
-                      <div className="flex flex-col items-center justify-center">
-                        <svg
-                          className="w-10 h-10 text-gray-700 mb-3"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={1.5}
-                            d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"
-                          />
-                        </svg>
-                        <p className="text-gray-500 text-sm font-medium">
-                          Drop your API endpoints here
-                        </p>
-                        <p className="text-gray-600 text-xs mt-1">
-                          Import a collection or add nodes manually
-                        </p>
-                      </div>
-                    )}
-                  </RFPanel>
-                </ReactFlow>
               </div>
             </ResizablePanel>
 
@@ -749,22 +909,101 @@ function Visualizer() {
                 <div className="px-4 pt-4 pb-3 border-b border-gray-700">
                   <h2 className="text-gray-50 font-bold text-sm mb-3">Flow Visualizer</h2>
 
-                  {/* Graph selector */}
+                  {/* Graph selector — custom dropdown with delete */}
                   <div>
                     <label className="text-gray-500 text-xs block mb-1">Graph</label>
-                    <select
-                      onChange={(e) => {
-                        if (e.target.value === "new") handleClearCanvas();
-                        else handleLoadGraph(e.target.value);
-                      }}
-                      value={currentGraphId || "new"}
-                      className="w-full bg-gray-700/50 border border-gray-700 text-gray-300 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-green-600 transition-colors"
-                    >
-                      <option value="new">New Graph</option>
-                      {savedGraphs.map((g) => (
-                        <option key={g.id} value={g.id}>{g.name}</option>
-                      ))}
-                    </select>
+                    <div className="relative" ref={graphDropdownRef}>
+                      {/* Trigger */}
+                      <button
+                        onClick={() => setGraphDropdownOpen((prev) => !prev)}
+                        className="w-full bg-[#1a1a1a] border border-white/[0.06] text-gray-300 text-xs rounded-lg px-3 py-2 text-left flex items-center justify-between hover:border-white/[0.12] transition-colors focus:outline-none"
+                      >
+                        <span className="truncate">
+                          {currentGraphId
+                            ? savedGraphs.find((g) => g.id === currentGraphId)?.name || "Unnamed Graph"
+                            : "New Graph"}
+                        </span>
+                        <svg
+                          className={`w-3 h-3 text-gray-500 flex-shrink-0 ml-2 transition-transform ${
+                            graphDropdownOpen ? "rotate-180" : ""
+                          }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+
+                      {/* Dropdown menu */}
+                      {graphDropdownOpen && (
+                        <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-[#1a1a1a] border border-white/[0.08] rounded-lg shadow-xl overflow-hidden max-h-48 overflow-y-auto">
+                          {/* New Graph option */}
+                          <button
+                            onClick={() => {
+                              handleNewGraph();
+                              setGraphDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors ${
+                              !currentGraphId
+                                ? "text-emerald-400 bg-emerald-500/10"
+                                : "text-gray-400 hover:bg-white/[0.04]"
+                            }`}
+                          >
+                            <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            </svg>
+                            New Graph
+                          </button>
+
+                          {/* Divider */}
+                          {savedGraphs.length > 0 && <div className="h-px bg-white/[0.04] mx-2" />}
+
+                          {/* Saved graphs */}
+                          {savedGraphs.map((graph) => (
+                            <div
+                              key={graph.id}
+                              className={`flex items-center group transition-colors ${
+                                currentGraphId === graph.id
+                                  ? "bg-emerald-500/10"
+                                  : "hover:bg-white/[0.04]"
+                              }`}
+                            >
+                              {/* Load graph */}
+                              <button
+                                onClick={() => {
+                                  handleLoadGraph(graph.id);
+                                  setGraphDropdownOpen(false);
+                                }}
+                                className="flex-1 text-left px-3 py-2 text-xs truncate min-w-0"
+                              >
+                                <span className={currentGraphId === graph.id ? "text-emerald-400" : "text-gray-300"}>
+                                  {graph.name}
+                                </span>
+                              </button>
+
+                              {/* Delete graph */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteGraph(graph.id);
+                                }}
+                                className="px-2 py-2 text-gray-700 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+
+                          {/* Empty state */}
+                          {savedGraphs.length === 0 && (
+                            <p className="text-gray-600 text-xs px-3 py-2">No saved graphs yet</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Save / Clear buttons */}
@@ -776,7 +1015,10 @@ function Visualizer() {
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
                       </svg>
-                      Save Graph
+                      Save
+                      {hasUnsavedChanges && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 ml-1 flex-shrink-0" />
+                      )}
                     </button>
                     <button
                       onClick={handleClearCanvas}
@@ -785,6 +1027,25 @@ function Visualizer() {
                       Clear Canvas
                     </button>
                   </div>
+
+                  {/* Save status feedback */}
+                  {saveStatus === "saved" && (
+                    <p className="text-emerald-500 text-[10px] mt-2 flex items-center gap-1">
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                      Graph saved successfully
+                    </p>
+                  )}
+                  {saveStatus === "saving" && (
+                    <p className="text-gray-500 text-[10px] mt-2 flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 border border-gray-500 border-t-transparent rounded-full animate-spin inline-block" />
+                      Saving...
+                    </p>
+                  )}
+                  {saveStatus === "error" && (
+                    <p className="text-rose-500 text-[10px] mt-2">Failed to save. Try again.</p>
+                  )}
                 </div>
 
                 {/* ── Section 2 — Add Endpoints ── */}
@@ -882,20 +1143,24 @@ function Visualizer() {
                   </div>
                 </div>
 
-                {/* ── Section 5 — Node Details ── */}
+                {/* ── Section 5 — Details (Node / Edge / Empty) ── */}
                 <div className="px-4 py-3 flex-1">
-                  <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-3">Node Details</p>
+                  <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-3">
+                    {selectedEdge ? "Connection Details" : "Node Details"}
+                  </p>
 
-                  {!selectedNode ? (
-                    /* Empty — no node selected */
+                  {/* ── State 1: Nothing selected ── */}
+                  {!selectedNode && !selectedEdge && (
                     <div className="bg-gray-700/20 rounded-lg p-4 text-center">
                       <svg className="w-6 h-6 text-gray-700 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
                       </svg>
-                      <p className="text-gray-600 text-xs">Click a node to see details</p>
+                      <p className="text-gray-600 text-xs">Click a node or edge to see details</p>
                     </div>
-                  ) : (
-                    /* Selected node details (inline) */
+                  )}
+
+                  {/* ── State 2: Node selected ── */}
+                  {selectedNode && !selectedEdge && (
                     <div>
                       {/* Node header — method badge + path */}
                       <div className="flex items-center gap-2 mb-3">
@@ -1007,6 +1272,166 @@ function Visualizer() {
                       {/* Deselect node */}
                       <button
                         onClick={() => { setSelectedNode(null); setConfirmDelete(false); }}
+                        className="text-gray-600 hover:text-gray-400 text-xs mt-3 w-full text-center transition-colors"
+                      >
+                        ← Back to overview
+                      </button>
+                    </div>
+                  )}
+
+                  {/* ── State 3: Edge selected ── */}
+                  {selectedEdge && (
+                    <div>
+                      {/* Close button */}
+                      <div className="flex items-center justify-end -mt-1 mb-2">
+                        <button
+                          onClick={() => setSelectedEdge(null)}
+                          className="text-gray-600 hover:text-gray-400 transition-colors"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+
+                      {/* From Node */}
+                      <div className="bg-gray-700/30 rounded-lg p-3 mb-2">
+                        <p className="text-gray-500 text-xs mb-1">From</p>
+                        {(() => {
+                          const sourceNode = nodes.find((n) => n.id === selectedEdge.source);
+                          return sourceNode ? (
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-mono font-bold ${METHOD_TEXT[sourceNode.data.method] || "text-gray-400"}`}>
+                                {sourceNode.data.method}
+                              </span>
+                              <span className="text-gray-300 text-xs font-mono truncate">
+                                {sourceNode.data.path}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-600 text-xs">Unknown node</span>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Arrow indicator */}
+                      <div className="flex items-center justify-center my-1">
+                        <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                        </svg>
+                      </div>
+
+                      {/* To Node */}
+                      <div className="bg-gray-700/30 rounded-lg p-3 mb-4">
+                        <p className="text-gray-500 text-xs mb-1">To</p>
+                        {(() => {
+                          const targetNode = nodes.find((n) => n.id === selectedEdge.target);
+                          return targetNode ? (
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-mono font-bold ${METHOD_TEXT[targetNode.data.method] || "text-gray-400"}`}>
+                                {targetNode.data.method}
+                              </span>
+                              <span className="text-gray-300 text-xs font-mono truncate">
+                                {targetNode.data.path}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-600 text-xs">Unknown node</span>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Edge Label Editor */}
+                      <div className="mb-4">
+                        <label className="text-gray-500 text-xs block mb-1.5">Connection Label</label>
+                        <input
+                          type="text"
+                          value={selectedEdge.label || ""}
+                          onChange={(e) => {
+                            const newLabel = e.target.value;
+                            setEdges((prev) =>
+                              prev.map((edge) =>
+                                edge.id === selectedEdge.id ? { ...edge, label: newLabel } : edge
+                              )
+                            );
+                            setSelectedEdge((prev) => ({ ...prev, label: newLabel }));
+                          }}
+                          placeholder="e.g. requires auth"
+                          className="bg-gray-700 border border-gray-700 text-gray-50 placeholder-gray-500 rounded-lg p-2.5 w-full text-xs focus:border-green-600 focus:outline-none transition-colors"
+                        />
+                        <p className="text-gray-600 text-xs mt-1">Label appears on the connection arrow</p>
+                      </div>
+
+                      {/* Edge Style Selector */}
+                      <div className="mb-4">
+                        <label className="text-gray-500 text-xs block mb-1.5">Line Style</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {/* Solid */}
+                          <button
+                            onClick={() => updateEdgeStyle(selectedEdge.id, "solid")}
+                            className={`border rounded-lg py-2 px-2 text-xs transition-colors flex flex-col items-center gap-1 ${
+                              !selectedEdge.animated && (!selectedEdge.style?.strokeDasharray || selectedEdge.style?.strokeDasharray === "")
+                                ? "border-green-600 text-green-400 bg-green-600/10"
+                                : "border-gray-700 text-gray-400 hover:bg-gray-700"
+                            }`}
+                          >
+                            <svg className="w-8 h-3" viewBox="0 0 32 8">
+                              <line x1="0" y1="4" x2="32" y2="4" stroke="currentColor" strokeWidth="2" />
+                            </svg>
+                            Solid
+                          </button>
+
+                          {/* Dashed */}
+                          <button
+                            onClick={() => updateEdgeStyle(selectedEdge.id, "dashed")}
+                            className={`border rounded-lg py-2 px-2 text-xs transition-colors flex flex-col items-center gap-1 ${
+                              selectedEdge.style?.strokeDasharray === "5 5"
+                                ? "border-green-600 text-green-400 bg-green-600/10"
+                                : "border-gray-700 text-gray-400 hover:bg-gray-700"
+                            }`}
+                          >
+                            <svg className="w-8 h-3" viewBox="0 0 32 8">
+                              <line x1="0" y1="4" x2="32" y2="4" stroke="currentColor" strokeWidth="2" strokeDasharray="5 5" />
+                            </svg>
+                            Dashed
+                          </button>
+
+                          {/* Animated */}
+                          <button
+                            onClick={() => updateEdgeStyle(selectedEdge.id, "animated")}
+                            className={`border rounded-lg py-2 px-2 text-xs transition-colors flex flex-col items-center gap-1 ${
+                              selectedEdge.animated
+                                ? "border-green-600 text-green-400 bg-green-600/10"
+                                : "border-gray-700 text-gray-400 hover:bg-gray-700"
+                            }`}
+                          >
+                            <svg className="w-8 h-3" viewBox="0 0 32 8">
+                              <circle cx="4" cy="4" r="2" fill="currentColor" />
+                              <circle cx="14" cy="4" r="2" fill="currentColor" />
+                              <circle cx="24" cy="4" r="2" fill="currentColor" />
+                            </svg>
+                            Animated
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Delete Edge */}
+                      <button
+                        onClick={() => {
+                          setEdges((prev) => prev.filter((e) => e.id !== selectedEdge.id));
+                          setSelectedEdge(null);
+                        }}
+                        className="border border-red-900/30 text-red-500 hover:bg-red-900/20 text-xs py-2 w-full rounded-lg transition-colors flex items-center justify-center gap-2"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Delete Connection
+                      </button>
+
+                      {/* Back to overview */}
+                      <button
+                        onClick={() => setSelectedEdge(null)}
                         className="text-gray-600 hover:text-gray-400 text-xs mt-3 w-full text-center transition-colors"
                       >
                         ← Back to overview
@@ -1146,7 +1571,7 @@ function Visualizer() {
             >
               <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
                 <h2 className="text-gray-50 font-bold text-sm">
-                  {currentGraphId ? "Update Graph" : "Save Graph"}
+                  {currentGraphId ? `Update "${graphName}"` : "Save New Graph"}
                 </h2>
                 <button
                   onClick={() => setSaveModalOpen(false)}
@@ -1169,10 +1594,16 @@ function Visualizer() {
                   onKeyDown={(e) => e.key === "Enter" && handleSaveGraph()}
                   autoFocus
                 />
-                <p className="text-gray-500 text-xs mt-2">
-                  {nodes.length} node{nodes.length !== 1 ? "s" : ""},{" "}
-                  {edges.length} edge{edges.length !== 1 ? "s" : ""}
-                </p>
+                {currentGraphId ? (
+                  <p className="text-gray-500 text-xs mt-2">
+                    This will overwrite the existing saved graph.
+                  </p>
+                ) : (
+                  <p className="text-gray-500 text-xs mt-2">
+                    {nodes.length} node{nodes.length !== 1 ? "s" : ""},{" "}
+                    {edges.length} edge{edges.length !== 1 ? "s" : ""}
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-700">
@@ -1187,7 +1618,7 @@ function Visualizer() {
                   disabled={!graphName.trim()}
                   className="bg-green-600 hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-50 text-xs px-4 py-2 rounded transition-colors"
                 >
-                  {currentGraphId ? "Update" : "Save"}
+                  {currentGraphId ? "Update Graph" : "Save Graph"}
                 </button>
               </div>
             </motion.div>

@@ -16,6 +16,8 @@ import { auth } from "../lib/firebase";
 import useStore from "../store/useStore";
 import LoginModal from "./LoginModal";
 import RegisterModal from "./RegisterModal";
+import ProfileSettingsModal from "./ProfileSettingsModal";
+import KeyboardShortcutsModal from "./KeyboardShortcutsModal";
 
 // ────────────────────────────────────────────────────────────
 // Navigation link definitions
@@ -51,9 +53,11 @@ function Navbar() {
     return () => unsubscribe();
   }, []);
 
-  // ── Modal state (login / register) ──
+  // ── Modal state (login / register / profile / shortcuts) ──
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [profileSettingsOpen, setProfileSettingsOpen] = useState(false);
+  const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
 
   const openLogin = () => { setRegisterOpen(false); setLoginOpen(true); };
   const openRegister = () => { setLoginOpen(false); setRegisterOpen(true); };
@@ -74,12 +78,29 @@ function Navbar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // ── Global Ctrl+K shortcut to open Keyboard Shortcuts modal ──
+  useEffect(() => {
+    const handleKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setKeyboardShortcutsOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, []);
+
   // Derive user initial — prefer displayName, fall back to email
   const userInitial = currentUser?.displayName
     ? currentUser.displayName[0].toUpperCase()
     : currentUser?.email
       ? currentUser.email[0].toUpperCase()
       : "?";
+
+  // Read saved avatar color from photoURL (custom color: scheme)
+  const avatarColor = currentUser?.photoURL?.startsWith('color:')
+    ? currentUser.photoURL.replace('color:', '')
+    : '#16a34a';
 
   // Sign out of Firebase, reset global state, redirect to landing page
   const handleLogout = async () => {
@@ -147,10 +168,11 @@ function Navbar() {
                 <div className="relative" ref={dropdownRef}>
                   <button
                     onClick={() => setDropdownOpen((prev) => !prev)}
-                    className={`w-8 h-8 rounded-full bg-green-600 text-gray-50 text-sm font-bold
+                    className={`w-8 h-8 rounded-full text-gray-50 text-sm font-bold
                                 flex items-center justify-center cursor-pointer
                                 transition-all duration-200 hover:ring-2 hover:ring-green-500
                                 ${dropdownOpen ? "ring-2 ring-green-500" : ""}`}
+                    style={{ backgroundColor: avatarColor }}
                   >
                     {userInitial}
                   </button>
@@ -174,21 +196,9 @@ function Navbar() {
 
                       {/* Section 2 — Account actions */}
                       <div className="py-1">
-                        {/* Switch Account */}
-                        <button
-                          onClick={() => { alert("Switch Account — Coming Soon"); setDropdownOpen(false); }}
-                          className="w-full flex items-center gap-3 text-gray-400 text-sm px-4 py-2
-                                     hover:text-gray-50 hover:bg-gray-700 cursor-pointer transition-colors rounded"
-                        >
-                          <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-                          </svg>
-                          Switch Account
-                        </button>
-
                         {/* Profile Settings */}
                         <button
-                          onClick={() => { alert("Profile Settings — Coming Soon"); setDropdownOpen(false); }}
+                          onClick={() => { setProfileSettingsOpen(true); setDropdownOpen(false); }}
                           className="w-full flex items-center gap-3 text-gray-400 text-sm px-4 py-2
                                      hover:text-gray-50 hover:bg-gray-700 cursor-pointer transition-colors rounded"
                         >
@@ -201,7 +211,7 @@ function Navbar() {
 
                         {/* Keyboard Shortcuts */}
                         <button
-                          onClick={() => { alert("Keyboard Shortcuts — Coming Soon"); setDropdownOpen(false); }}
+                          onClick={() => { setKeyboardShortcutsOpen(true); setDropdownOpen(false); }}
                           className="w-full flex items-center gap-3 text-gray-400 text-sm px-4 py-2
                                      hover:text-gray-50 hover:bg-gray-700 cursor-pointer transition-colors rounded"
                         >
@@ -279,6 +289,21 @@ function Navbar() {
           />
         )}
       </AnimatePresence>
+
+      {/* ── Profile Settings Modal ── */}
+      {profileSettingsOpen && (
+        <ProfileSettingsModal
+          onClose={() => setProfileSettingsOpen(false)}
+          user={currentUser}
+        />
+      )}
+
+      {/* ── Keyboard Shortcuts Modal ── */}
+      {keyboardShortcutsOpen && (
+        <KeyboardShortcutsModal
+          onClose={() => setKeyboardShortcutsOpen(false)}
+        />
+      )}
     </>
   );
 }

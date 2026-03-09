@@ -1,210 +1,192 @@
 // ============================================================
 // EndpointNode.jsx — Custom React Flow Node for API Endpoints
 // ============================================================
-// Renders a styled card for each API endpoint on the flow
-// canvas. Shows method, path, name, auth badge, status dot,
-// last response time, and a hover tooltip with response preview.
+// Minimal, professional node card inspired by Linear / Vercel.
+// Typography-first design — subtle colored left-border accent
+// is the only color cue. Handles fade in on hover via the
+// @reactflow/node-resizer integration.
 // ============================================================
 
 import { useState } from "react";
 import { Handle, Position } from "reactflow";
+import { NodeResizer } from "@reactflow/node-resizer";
+import "@reactflow/node-resizer/dist/style.css";
 
 // ────────────────────────────────────────────────────────────
-// Method-based color mapping
+// Method text colors — muted, used only on text
 // ────────────────────────────────────────────────────────────
 
 const METHOD_COLORS = {
-  GET: {
-    text: "text-green-400",
-    border: "border-green-500/40",
-    bg: "bg-green-500/5",
-  },
-  POST: {
-    text: "text-blue-400",
-    border: "border-blue-500/40",
-    bg: "bg-blue-500/5",
-  },
-  PUT: {
-    text: "text-yellow-400",
-    border: "border-yellow-500/40",
-    bg: "bg-yellow-500/5",
-  },
-  DELETE: {
-    text: "text-red-400",
-    border: "border-red-500/40",
-    bg: "bg-red-500/5",
-  },
-  PATCH: {
-    text: "text-orange-400",
-    border: "border-orange-500/40",
-    bg: "bg-orange-500/5",
-  },
+  GET:    "text-emerald-400",
+  POST:   "text-sky-400",
+  PUT:    "text-amber-400",
+  DELETE: "text-rose-400",
+  PATCH:  "text-orange-400",
 };
 
 // ────────────────────────────────────────────────────────────
-// Status indicator colors (top-right dot)
+// Method left-border accent — the only colored element
 // ────────────────────────────────────────────────────────────
 
-const STATUS_COLORS = {
-  success: "bg-green-500",   // 2xx
-  warning: "bg-yellow-500",  // 4xx
-  error: "bg-red-500",       // 5xx
-  idle: "bg-gray-500",       // never tested
+const METHOD_BORDER = {
+  GET:    "border-l-emerald-500/40",
+  POST:   "border-l-sky-500/40",
+  PUT:    "border-l-amber-500/40",
+  DELETE: "border-l-rose-500/40",
+  PATCH:  "border-l-orange-500/40",
 };
 
 // ============================================================
 // EndpointNode Component
 // ============================================================
 
-function EndpointNode({ data }) {
+function EndpointNode({ data, selected }) {
   const [showPreview, setShowPreview] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
-  // Resolve color set from HTTP method
-  const colors = METHOD_COLORS[data.method] || METHOD_COLORS.GET;
-
-  // Derive status-dot color from last response status code
-  const statusColor = data.lastStatus
-    ? data.lastStatus < 300
-      ? STATUS_COLORS.success
+  // Inline status dot color
+  const statusColor = !data.lastStatus
+    ? "bg-gray-600"
+    : data.lastStatus < 300
+      ? "bg-emerald-500"
       : data.lastStatus < 500
-        ? STATUS_COLORS.warning
-        : STATUS_COLORS.error
-    : STATUS_COLORS.idle;
+        ? "bg-amber-500"
+        : "bg-rose-500";
 
   return (
     <div
       className={`
-        relative bg-gray-800 border rounded-xl
-        min-w-[180px] max-w-[220px]
+        relative
+        bg-[#141414]
+        border border-white/[0.06]
+        border-l-2
+        ${METHOD_BORDER[data.method] || "border-l-white/10"}
+        rounded-lg
+        min-w-[160px] min-h-[72px] w-full h-full
         cursor-pointer select-none
-        transition-all duration-200
-        ${colors.border}
-        ${data.selected ? "ring-2 ring-green-500/50" : ""}
-        ${data.isRunning ? "ring-2 ring-green-500 animate-pulse" : ""}
-        ${data.simulationActive ? "ring-2 ring-green-400 shadow-lg shadow-green-500/20" : ""}
+        transition-all duration-150
+        ${selected || isHovered ? "border-white/[0.12] shadow-sm shadow-black/40" : ""}
+        ${data.simulationActive ? "border-l-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.15)]" : ""}
+        ${data.isRunning ? "border-l-sky-400 animate-pulse" : ""}
       `}
-      onMouseEnter={() => setShowPreview(true)}
-      onMouseLeave={() => setShowPreview(false)}
+      onMouseEnter={() => { setShowPreview(true); setIsHovered(true); }}
+      onMouseLeave={() => { setShowPreview(false); setIsHovered(false); }}
     >
-      {/* ── Status indicator dot (top-right) ── */}
-      <div
-        className={`
-          absolute -top-1.5 -right-1.5
-          w-3 h-3 rounded-full border-2
-          border-gray-900 ${statusColor}
-        `}
+      {/* ── Resizer — subtle handles, fade in on hover ── */}
+      <NodeResizer
+        isVisible={isHovered || selected}
+        minWidth={160}
+        minHeight={72}
+        handleStyle={{
+          width: 8,
+          height: 8,
+          backgroundColor: "#1a1a1a",
+          borderRadius: 2,
+          border: "1px solid rgba(255,255,255,0.15)",
+          opacity: isHovered || selected ? 1 : 0,
+          transition: "opacity 0.15s ease",
+        }}
+        lineStyle={{
+          border: "1px solid rgba(255,255,255,0.06)",
+          opacity: isHovered || selected ? 1 : 0,
+          transition: "opacity 0.15s ease",
+        }}
       />
 
-      {/* ── Node header — method + path ── */}
-      <div className={`px-3 py-2 rounded-t-xl border-b border-gray-700 ${colors.bg}`}>
-        <div className="flex items-center gap-2">
-          <span className={`text-xs font-bold font-mono ${colors.text}`}>
+      {/* ── Node content — fills resized area ── */}
+      <div className="flex flex-col h-full">
+
+        {/* Header — method / path + status dot */}
+        <div className="px-3 pt-2.5 pb-2 flex items-center gap-2 flex-shrink-0">
+          <span className={`text-[10px] font-mono font-medium tracking-wider uppercase ${METHOD_COLORS[data.method] || "text-gray-400"}`}>
             {data.method}
           </span>
-          <span className="text-gray-50 text-xs font-mono truncate">
+          <span className="text-white/10 text-xs select-none">/</span>
+          <span className="text-gray-200 text-xs font-mono truncate flex-1 leading-none">
             {data.path}
           </span>
+          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusColor}`} />
+        </div>
+
+        {/* Divider */}
+        <div className="h-px bg-white/[0.04] mx-3" />
+
+        {/* Body — grows to fill */}
+        <div className="px-3 py-2 flex flex-col gap-1 flex-1 overflow-hidden">
+          {data.name && (
+            <p className="text-gray-500 text-[11px] truncate leading-tight">{data.name}</p>
+          )}
+
+          {data.authRequired && (
+            <div className="flex items-center gap-1">
+              <svg className="w-2.5 h-2.5 text-gray-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+              </svg>
+              <span className="text-gray-600 text-[10px]">auth</span>
+            </div>
+          )}
+
+          {data.lastStatus && (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className={`text-[10px] font-mono ${data.lastStatus < 300 ? "text-emerald-500" : data.lastStatus < 500 ? "text-amber-500" : "text-rose-500"}`}>
+                {data.lastStatus}
+              </span>
+              {data.lastResponseTime && (
+                <span className="text-gray-600 text-[10px] font-mono">{data.lastResponseTime}ms</span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ── Node body — name, status, auth badge ── */}
-      <div className="px-3 py-2">
-        {data.name && (
-          <p className="text-gray-400 text-xs truncate">{data.name}</p>
-        )}
-
-        {data.lastStatus && (
-          <div className="flex items-center gap-2 mt-1">
-            <span
-              className={`text-xs font-mono ${
-                data.lastStatus < 300
-                  ? "text-green-400"
-                  : data.lastStatus < 500
-                    ? "text-yellow-400"
-                    : "text-red-400"
-              }`}
-            >
+      {/* ── Response preview tooltip ── */}
+      {showPreview && data.lastResponse && (
+        <div className="absolute left-full top-0 ml-3 z-50 w-60 bg-[#1a1a1a] border border-white/[0.08] rounded-lg p-3 shadow-xl shadow-black/60 pointer-events-none">
+          <div className="flex items-center justify-between mb-2">
+            <span className={`text-[10px] font-mono ${data.lastStatus < 300 ? "text-emerald-400" : "text-rose-400"}`}>
               {data.lastStatus}
             </span>
-            {data.lastResponseTime && (
-              <span className="text-gray-500 text-xs">
-                {data.lastResponseTime}ms
-              </span>
-            )}
-          </div>
-        )}
-
-        {data.authRequired && (
-          <div className="flex items-center gap-1 mt-1">
-            <svg
-              className="w-3 h-3 text-yellow-500"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fillRule="evenodd"
-                d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
-                clipRule="evenodd"
-              />
-            </svg>
-            <span className="text-yellow-500 text-xs">Auth</span>
-          </div>
-        )}
-      </div>
-
-      {/* ── Response preview tooltip (appears on hover) ── */}
-      {showPreview && data.lastResponse && (
-        <div className="absolute left-full top-0 ml-2 z-50 w-64 bg-gray-800 border border-gray-700 rounded-lg p-3 shadow-xl pointer-events-none">
-          <div className="flex items-center justify-between mb-2">
-            <span
-              className={`text-xs font-mono font-bold ${
-                data.lastStatus < 300 ? "text-green-400" : "text-red-400"
-              }`}
-            >
-              {data.lastStatus}{" "}
-              {data.lastStatus < 300 ? "OK" : "Error"}
-            </span>
-            <span className="text-gray-500 text-xs">
-              {data.lastResponseTime}ms
-            </span>
+            <span className="text-gray-600 text-[10px] font-mono">{data.lastResponseTime}ms</span>
           </div>
 
           {data.lastTested && (
-            <p className="text-gray-500 text-xs mb-2">
+            <p className="text-gray-600 text-[10px] mb-2">
               {new Date(data.lastTested).toLocaleString()}
             </p>
           )}
 
-          <div className="bg-gray-900 rounded p-2 max-h-24 overflow-hidden">
-            <pre className="text-green-400 text-xs font-mono whitespace-pre-wrap break-all">
-              {typeof data.lastResponse === "object"
-                ? JSON.stringify(data.lastResponse, null, 2).slice(0, 200)
-                : String(data.lastResponse).slice(0, 200)}
-              {JSON.stringify(data.lastResponse).length > 200 ? "..." : ""}
-            </pre>
-          </div>
+          <div className="h-px bg-white/[0.05] mb-2" />
+
+          <pre className="text-gray-400 text-[10px] font-mono whitespace-pre-wrap break-all max-h-20 overflow-hidden leading-relaxed">
+            {typeof data.lastResponse === "object"
+              ? JSON.stringify(data.lastResponse, null, 2).slice(0, 180)
+              : String(data.lastResponse || "").slice(0, 180)}
+            {JSON.stringify(data.lastResponse || "").length > 180 ? "\n..." : ""}
+          </pre>
         </div>
       )}
 
-      {/* ── React Flow connection handles ── */}
+      {/* ── React Flow connection handles — subtle ── */}
       <Handle
         type="target"
         position={Position.Left}
         style={{
-          background: "#4b5563",
-          border: "2px solid #374151",
-          width: 8,
-          height: 8,
+          background: "#2a2a2a",
+          border: "1px solid rgba(255,255,255,0.1)",
+          width: 6,
+          height: 6,
+          left: -3,
         }}
       />
       <Handle
         type="source"
         position={Position.Right}
         style={{
-          background: "#4b5563",
-          border: "2px solid #374151",
-          width: 8,
-          height: 8,
+          background: "#2a2a2a",
+          border: "1px solid rgba(255,255,255,0.1)",
+          width: 6,
+          height: 6,
+          right: -3,
         }}
       />
     </div>
