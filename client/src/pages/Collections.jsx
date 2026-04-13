@@ -9,7 +9,7 @@
 // and Workspace sidebar stay in sync without duplicate fetches.
 // ============================================================
 
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   collection,
   query,
@@ -58,6 +58,7 @@ function Collections() {
 
   // ── Local UI state ───────────────────────────────────────
   const [requestCounts, setRequestCounts] = useState({}); // { collectionId: number }
+  const [requestCacheLoaded, setRequestCacheLoaded] = useState(false);
 
   // Expanded card
   const [expandedId, setExpandedId] = useState(null);
@@ -74,22 +75,67 @@ function Collections() {
   // Inline delete confirmation (stores collection id)
   const [confirmingDelete, setConfirmingDelete] = useState(null);
 
-  // ── Fetch request counts when collections load ────────────
-  // Request counts are local UI state — derived from global
-  // requests cache or fetched on demand for the stats row.
-  useMemo(() => {
+  // ── Load all requests once so counts are accurate ─────────
+  useEffect(() => {
+    if (!user?.uid || !collectionsLoaded) return;
+
+    let cancelled = false;
+
+    const fetchAllRequests = async () => {
+      try {
+        const q = query(
+          collection(db, "requests"),
+          where("user_id", "==", user.uid)
+        );
+        const snapshot = await getDocs(q);
+        const grouped = {};
+
+        snapshot.docs.forEach((docSnap) => {
+          const request = {
+            id: docSnap.id,
+            ...docSnap.data(),
+          };
+          const collectionId = request.collection_id;
+          if (!collectionId) return;
+
+          if (!grouped[collectionId]) {
+            grouped[collectionId] = [];
+          }
+          grouped[collectionId].push(request);
+        });
+
+        Object.entries(grouped).forEach(([collectionId, items]) => {
+          setCollectionRequests(collectionId, items);
+        });
+
+        if (!cancelled) {
+          setRequestCacheLoaded(true);
+        }
+      } catch (err) {
+        console.error("Failed to preload requests:", err.message);
+        if (!cancelled) {
+          setRequestCacheLoaded(true);
+        }
+      }
+    };
+
+    fetchAllRequests();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, collectionsLoaded, setCollectionRequests]);
+
+  // Keep request counts in sync with the global request cache.
+  useEffect(() => {
     if (!collectionsLoaded) return;
-    // Build counts from already-cached requests in Zustand
+
     const counts = {};
     collections.forEach((col) => {
-      if (requests[col.id]) {
-        counts[col.id] = requests[col.id].length;
-      }
+      counts[col.id] = requests[col.id]?.length || 0;
     });
-    // Only update if we have new count data
-    if (Object.keys(counts).length > 0) {
-      setRequestCounts((prev) => ({ ...prev, ...counts }));
-    }
+
+    setRequestCounts(counts);
   }, [collections, requests, collectionsLoaded]);
 
   // Fetch requests for a specific collection (stores in global Zustand state)
@@ -272,7 +318,7 @@ function Collections() {
   // ── Derived data ─────────────────────────────────────────
 
   // Treat loading as "not yet loaded from Firestore"
-  const loading = !collectionsLoaded;
+  const loading = !collectionsLoaded || !requestCacheLoaded;
 
   // Filter collections by search term
   const filtered = useMemo(
