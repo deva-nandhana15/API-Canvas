@@ -88,7 +88,7 @@ app.use(express.urlencoded({ limit: "1mb", extended: true }));
 // General rate limiter — applies to ALL routes
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15-minute window
-  max: 200,                  // max 200 requests per window per IP
+  max: 50,                  // max 50 requests per window per IP
   message: {
     error: "Too many requests from this IP, please try again after 15 minutes",
   },
@@ -103,7 +103,7 @@ const generalLimiter = rateLimit({
 // Strict rate limiter — only for the proxy endpoint
 const proxyLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15-minute window
-  max: 100,                  // max 100 proxy requests per window per IP
+  max: 50,                  // max 50 proxy requests per window per IP
   message: {
     error: "Too many proxy requests, please try again after 15 minutes",
   },
